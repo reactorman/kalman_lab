@@ -43,13 +43,34 @@ class PG81104A(InstrumentBase):
         """
         Reset the pulse generator to default state.
         
-        Also disables display to speed up command execution.
+        Configures:
+        - Display off for faster command execution
+        - Output impedance: 50 ohms into 1 Megohm load (both channels)
         
-        Reference: *RST and :DISP commands
+        Reference: *RST, :DISP, :OUTP:IMP commands
         """
         self.write("*RST")
         self.write(":DISP OFF")  # Speeds up command execution
-        self.logger.info("PG81104A reset (display off for speed)")
+        
+        # Configure output impedance: 50 ohm source into 1 Megohm load
+        self._configure_output_impedance()
+        
+        self.logger.info("PG81104A reset (50 ohm → 1 MOhm, display off)")
+    
+    def _configure_output_impedance(self) -> None:
+        """
+        Configure output impedance for both channels.
+        
+        Fixed configuration: 50 ohm output impedance into 1 Megohm load.
+        This is the standard setup for high-impedance DUT inputs.
+        
+        Reference: :OUTP:IMP:EXT command
+        """
+        # Set expected load impedance to 1 Megohm (high impedance)
+        # This tells the generator not to double voltages for 50 ohm matching
+        self.write(":OUTP1:IMP:EXT 1E6")  # Channel 1: expect 1 MOhm load
+        self.write(":OUTP2:IMP:EXT 1E6")  # Channel 2: expect 1 MOhm load
+        self.logger.debug("Output impedance: 50 ohm source → 1 MOhm load")
     
     def error_query(self) -> str:
         """
