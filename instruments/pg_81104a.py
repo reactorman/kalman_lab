@@ -68,8 +68,8 @@ class PG81104A(InstrumentBase):
         """
         # Set expected load impedance to 1 Megohm (high impedance)
         # This tells the generator not to double voltages for 50 ohm matching
-        self.write(":OUTP1:IMP:EXT 1E6")  # Channel 1: expect 1 MOhm load
-        self.write(":OUTP2:IMP:EXT 1E6")  # Channel 2: expect 1 MOhm load
+        self.write(":OUTP1:IMP:EXT 1MOHM")  # Channel 1: expect 1 MOhm load
+        self.write(":OUTP2:IMP:EXT 1MOHM")  # Channel 2: expect 1 MOhm load
         self.logger.debug("Output impedance: 50 ohm source → 1 MOhm load")
     
     def error_query(self) -> str:
