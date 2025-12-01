@@ -1,0 +1,65 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.env
+.venv/
+venv/
+ENV/
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Windows
+desktop.ini
+Thumbs.db
+ehthumbs.db
+*.lnk
+
+# macOS (in case of cross-platform use)
+.DS_Store
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# mypy
+.mypy_cache/
+
+# Secrets / credentials
+*.pem
+*.key
+secrets.json
+
+# Instrument control generated files
+logs/test_commands.txt
+logs/*.log
+measurements/results.csv
