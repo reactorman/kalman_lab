@@ -36,6 +36,7 @@ from configs.compute import (
     COMPUTE_TERMINALS,
     COMPUTE_BY_TYPE,
     COMPUTE_SEQUENTIAL_PAIRS,
+    COMPUTE_PULSE_CONFIG,
 )
 from configs.resource_types import MeasurementType
 
@@ -45,26 +46,25 @@ class ComputeExperiment(ExperimentRunner):
     Compute experiment runner.
     
     Performs computation mode characterization with:
-    - Voltage biasing on VDD, OUT1, OUT2
+    - Voltage biasing on OUT1, OUT2 (V terminals)
+    - VSU biasing on VDD, VCC
+    - Pulse generation on ERASE_PROG
     - Current measurements on trim, gain, and reference terminals
-    - VSU biasing on VCC and ERASE_PROG
     """
     
     def __init__(self, test_mode: bool = False, vdd: float = 1.8, 
-                 vcc: float = 3.3, erase_prog: float = 0.0):
+                 vcc: float = 3.3):
         """
         Initialize Compute experiment.
         
         Args:
             test_mode: If True, log commands without hardware
-            vdd: VDD voltage in volts
-            vcc: VCC voltage in volts
-            erase_prog: ERASE_PROG voltage in volts
+            vdd: VDD voltage in volts (VSU)
+            vcc: VCC voltage in volts (VSU)
         """
         super().__init__(COMPUTE_CONFIG, test_mode)
         self.vdd = vdd
         self.vcc = vcc
-        self.erase_prog = erase_prog
     
     def setup_bias(self) -> None:
         """Configure all bias conditions for the experiment."""
@@ -73,21 +73,41 @@ class ComputeExperiment(ExperimentRunner):
         # Enable GNDU (ground reference)
         self.enable_gndu("VSS")
         
-        # Set V terminals (voltage sources)
+        # Set VSU terminals (VDD and VCC are now VSU type)
         self.set_terminal_voltage("VDD", self.vdd)
+        self.set_terminal_voltage("VCC", self.vcc)
+        
+        # Set V terminals (output voltages)
         self.set_terminal_voltage("OUT1", 0.0)  # Initial value
         self.set_terminal_voltage("OUT2", 0.0)  # Initial value
         
-        # Set VSU terminals
-        self.set_terminal_voltage("VCC", self.vcc)
-        self.set_terminal_voltage("ERASE_PROG", self.erase_prog)
-        
         # Set I terminals to 0A initially (current force mode)
         for terminal in COMPUTE_BY_TYPE[MeasurementType.I]:
-            if terminal not in ["IMEAS"]:  # Skip sequential pair
-                self.set_terminal_current(terminal, 0.0)
+            self.set_terminal_current(terminal, 0.0)
         
         self.logger.info("Bias setup complete")
+    
+    def send_erase_prog_pulse(self, vhigh: float = None, vlow: float = None,
+                              width: str = None, count: int = 1) -> None:
+        """
+        Send erase/program pulse on ERASE_PROG terminal.
+        
+        Args:
+            vhigh: High voltage (default from config)
+            vlow: Low voltage (default from config)
+            width: Pulse width (default from config)
+            count: Number of pulses
+        """
+        pulse_cfg = COMPUTE_PULSE_CONFIG.get("ERASE_PROG", {})
+        
+        self.set_pulse(
+            terminal="ERASE_PROG",
+            vhigh=vhigh or pulse_cfg.get("default_vhigh", 5.0),
+            vlow=vlow or pulse_cfg.get("default_vlow", 0.0),
+            width=width or pulse_cfg.get("default_width", "100NS"),
+            period=pulse_cfg.get("default_period", "1US"),
+            count=count
+        )
     
     def measure_all_currents(self) -> dict:
         """
@@ -99,21 +119,10 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("Measuring all terminal currents...")
         results = {}
         
-        # Measure primary I terminals
+        # Measure all I terminals (no sequential pairs needed now)
         for terminal in COMPUTE_BY_TYPE[MeasurementType.I]:
-            # Handle sequential pairs - skip IMEAS for now
-            skip_pair = any(terminal == pair[1] for pair in COMPUTE_SEQUENTIAL_PAIRS)
-            if not skip_pair:
-                current = self.measure_terminal_current(terminal)
-                results[terminal] = current
-        
-        # Now measure sequential terminals
-        for pair in COMPUTE_SEQUENTIAL_PAIRS:
-            primary, secondary = pair
-            self.logger.info(f"Sequential measurement: {secondary} (after {primary})")
-            # Reconfigure the channel for the secondary terminal
-            current = self.measure_terminal_current(secondary)
-            results[secondary] = current
+            current = self.measure_terminal_current(terminal)
+            results[terminal] = current
         
         return results
     
@@ -159,7 +168,6 @@ class ComputeExperiment(ExperimentRunner):
             "parameters": {
                 "VDD": self.vdd,
                 "VCC": self.vcc,
-                "ERASE_PROG": self.erase_prog,
             },
             "measurements": {}
         }
@@ -172,17 +180,23 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("Step 2: Initial current measurements")
         results["measurements"]["initial"] = self.measure_all_currents()
         
-        # Step 3: Sweep OUT1
+        # Step 3: Send erase/program pulse and measure
         self.logger.info("-" * 40)
-        self.logger.info("Step 3: OUT1 voltage sweep")
+        self.logger.info("Step 3: Erase/Program pulse test")
+        self.send_erase_prog_pulse(count=1)
+        results["measurements"]["after_pulse"] = self.measure_all_currents()
+        
+        # Step 4: Sweep OUT1
+        self.logger.info("-" * 40)
+        self.logger.info("Step 4: OUT1 voltage sweep")
         results["measurements"]["out1_sweep"] = self.sweep_output_voltage(
             "OUT1", 0.0, self.vdd, 0.1
         )
         
-        # Step 4: Reset OUT1 and sweep OUT2
+        # Step 5: Reset OUT1 and sweep OUT2
         self.set_terminal_voltage("OUT1", 0.0)
         self.logger.info("-" * 40)
-        self.logger.info("Step 4: OUT2 voltage sweep")
+        self.logger.info("Step 5: OUT2 voltage sweep")
         results["measurements"]["out2_sweep"] = self.sweep_output_voltage(
             "OUT2", 0.0, self.vdd, 0.1
         )
@@ -216,12 +230,6 @@ def main():
         default=3.3,
         help='VCC voltage in volts (default: 3.3)'
     )
-    parser.add_argument(
-        '--erase-prog',
-        type=float,
-        default=0.0,
-        help='ERASE_PROG voltage in volts (default: 0.0)'
-    )
     args = parser.parse_args()
     
     # Run experiment
@@ -229,7 +237,6 @@ def main():
         test_mode=args.test,
         vdd=args.vdd,
         vcc=args.vcc,
-        erase_prog=args.erase_prog
     ) as experiment:
         results = experiment.run()
     
@@ -248,4 +255,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
