@@ -5,6 +5,11 @@ Base Experiment Runner
 Provides common functionality for all experiment execution scripts.
 Handles instrument initialization, bias setup, and measurement coordination
 based on experiment configuration files.
+
+Compliance Settings:
+    - Voltage sources: 1mA (0.001A) current compliance
+    - Current sources: 2V voltage compliance
+    - Current direction: "pulled" (positive = flowing into IV meter)
 """
 
 import sys
@@ -36,6 +41,10 @@ DEFAULT_ADDRESSES = {
     InstrumentType.PG81104A: 'GPIB0::10::INSTR',
 }
 
+# Default compliance limits
+VOLTAGE_SOURCE_COMPLIANCE = 0.001  # 1mA for voltage sources
+CURRENT_SOURCE_COMPLIANCE = 2.0    # 2V for current sources
+
 
 class ExperimentRunner:
     """
@@ -46,6 +55,10 @@ class ExperimentRunner:
     - Terminal-based bias setup using logical names
     - Measurement coordination across instruments
     - TEST_MODE support for all operations
+    
+    Current Convention:
+        All currents are "pulled" - positive current flows INTO the IV meter.
+        Current sources are configured to avoid negative voltage output when possible.
     """
     
     def __init__(self, config: ExperimentConfig, test_mode: bool = False,
@@ -194,15 +207,18 @@ class ExperimentRunner:
         return self.config.terminals[terminal]
     
     def set_terminal_voltage(self, terminal: str, voltage: float,
-                            compliance: float = 0.1) -> None:
+                            compliance: float = None) -> None:
         """
         Set voltage on a terminal (V or VSU type).
         
         Args:
             terminal: Logical terminal name
             voltage: Voltage to set in volts
-            compliance: Current compliance in amps
+            compliance: Current compliance in amps (default: 1mA)
         """
+        if compliance is None:
+            compliance = VOLTAGE_SOURCE_COMPLIANCE  # 1mA default
+        
         cfg = self.get_terminal_config(terminal)
         
         if cfg.measurement_type not in [MeasurementType.V, MeasurementType.VSU]:
@@ -219,18 +235,24 @@ class ExperimentRunner:
                 inst.set_voltage(cfg.channel, voltage, compliance)
         
         self._terminal_states[terminal] = voltage
-        self.logger.info(f"{terminal}: Set to {voltage}V")
+        self.logger.info(f"{terminal}: Set to {voltage}V (Icomp={compliance*1000:.1f}mA)")
     
     def set_terminal_current(self, terminal: str, current: float,
-                            compliance: float = 10.0) -> None:
+                            compliance: float = None) -> None:
         """
         Set current on a terminal (I type).
         
+        Current is "pulled" - positive current flows INTO the IV meter.
+        The compliance voltage is set to limit output voltage range.
+        
         Args:
             terminal: Logical terminal name
-            current: Current to set in amps
-            compliance: Voltage compliance in volts
+            current: Current to set in amps (positive = into meter)
+            compliance: Voltage compliance in volts (default: 2V)
         """
+        if compliance is None:
+            compliance = CURRENT_SOURCE_COMPLIANCE  # 2V default
+        
         cfg = self.get_terminal_config(terminal)
         
         if cfg.measurement_type != MeasurementType.I:
@@ -238,13 +260,15 @@ class ExperimentRunner:
         
         inst = self._get_instrument(cfg.instrument)
         
+        # Use positive current (pulled into meter)
+        # Compliance limits voltage to avoid negative output
         if cfg.instrument == InstrumentType.IV5270B:
             inst.set_current(cfg.channel, current, compliance)
         elif cfg.instrument == InstrumentType.IV4156B:
             inst.set_current(cfg.channel, current, compliance)
         
         self._terminal_states[terminal] = current
-        self.logger.info(f"{terminal}: Set to {current}A")
+        self.logger.info(f"{terminal}: Set to {current}A (Vcomp={compliance}V)")
     
     def enable_gndu(self, terminal: str) -> None:
         """
@@ -318,12 +342,14 @@ class ExperimentRunner:
         """
         Measure current on a terminal.
         
+        Current is "pulled" - positive value means current flowing INTO the meter.
+        
         Args:
             terminal: Terminal name
             record: If True, record to CSV
             
         Returns:
-            Measured current in amps
+            Measured current in amps (positive = into meter)
         """
         cfg = self.get_terminal_config(terminal)
         inst = self._get_instrument(cfg.instrument)
@@ -400,4 +426,3 @@ class ExperimentRunner:
         """Context manager exit."""
         self.shutdown()
         return False
-

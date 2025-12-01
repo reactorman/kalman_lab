@@ -15,11 +15,16 @@ Usage:
     
     --test: Run in TEST_MODE (log commands without hardware)
     --vdd: VDD voltage (default: 1.8V)
-    --vcc: VCC voltage (default: 3.3V)
+    --vcc: VCC voltage (default: 5.0V)
 
 Configuration:
     Terminal mappings are defined in configs/compute.py
     This script does NOT read the CSV file at runtime.
+
+Compliance Settings:
+    - Voltage sources: 1mA compliance
+    - Current sources: 2V compliance
+    - Current direction: "pulled" (positive = into IV meter)
 """
 
 import sys
@@ -37,6 +42,7 @@ from configs.compute import (
     COMPUTE_BY_TYPE,
     COMPUTE_SEQUENTIAL_PAIRS,
     COMPUTE_PULSE_CONFIG,
+    COMPUTE_DEFAULTS,
 )
 from configs.resource_types import MeasurementType
 
@@ -50,21 +56,23 @@ class ComputeExperiment(ExperimentRunner):
     - VSU biasing on VDD, VCC
     - Pulse generation on ERASE_PROG
     - Current measurements on trim, gain, and reference terminals
+    
+    All currents are "pulled" (positive = into IV meter).
     """
     
-    def __init__(self, test_mode: bool = False, vdd: float = 1.8, 
-                 vcc: float = 3.3):
+    def __init__(self, test_mode: bool = False, vdd: float = None, 
+                 vcc: float = None):
         """
         Initialize Compute experiment.
         
         Args:
             test_mode: If True, log commands without hardware
-            vdd: VDD voltage in volts (VSU)
-            vcc: VCC voltage in volts (VSU)
+            vdd: VDD voltage in volts (default: 1.8V)
+            vcc: VCC voltage in volts (default: 5.0V)
         """
         super().__init__(COMPUTE_CONFIG, test_mode)
-        self.vdd = vdd
-        self.vcc = vcc
+        self.vdd = vdd if vdd is not None else COMPUTE_DEFAULTS["VDD"]
+        self.vcc = vcc if vcc is not None else COMPUTE_DEFAULTS["VCC"]
     
     def setup_bias(self) -> None:
         """Configure all bias conditions for the experiment."""
@@ -73,7 +81,7 @@ class ComputeExperiment(ExperimentRunner):
         # Enable GNDU (ground reference)
         self.enable_gndu("VSS")
         
-        # Set VSU terminals (VDD and VCC are now VSU type)
+        # Set VSU terminals (VDD and VCC are VSU type)
         self.set_terminal_voltage("VDD", self.vdd)
         self.set_terminal_voltage("VCC", self.vcc)
         
@@ -82,6 +90,7 @@ class ComputeExperiment(ExperimentRunner):
         self.set_terminal_voltage("OUT2", 0.0)  # Initial value
         
         # Set I terminals to 0A initially (current force mode)
+        # Current is "pulled" (positive = into meter)
         for terminal in COMPUTE_BY_TYPE[MeasurementType.I]:
             self.set_terminal_current(terminal, 0.0)
         
@@ -113,13 +122,15 @@ class ComputeExperiment(ExperimentRunner):
         """
         Measure currents on all I terminals.
         
+        All currents are "pulled" (positive = into IV meter).
+        
         Returns:
             Dictionary mapping terminal names to current values
         """
         self.logger.info("Measuring all terminal currents...")
         results = {}
         
-        # Measure all I terminals (no sequential pairs needed now)
+        # Measure all I terminals
         for terminal in COMPUTE_BY_TYPE[MeasurementType.I]:
             current = self.measure_terminal_current(terminal)
             results[terminal] = current
@@ -227,8 +238,8 @@ def main():
     parser.add_argument(
         '--vcc',
         type=float,
-        default=3.3,
-        help='VCC voltage in volts (default: 3.3)'
+        default=5.0,
+        help='VCC voltage in volts (default: 5.0)'
     )
     args = parser.parse_args()
     

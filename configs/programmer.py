@@ -10,25 +10,27 @@ based on the CSV specification and resource allocation rules.
 
 Resource Allocation Summary:
     V terminals (3): VDD, VCC, ICELLMEAS
-        → IV5270B HR SMUs (channels 1-3)
+        → 5270B HR SMUs (channels 1-3)
     
     I terminals (2): IREFP, PROG_IN
-        → IV4156B SMUs (channels 1-2)
+        → 4156B SMUs (channels 1-2)
     
     GNDU terminal (1): VSS
-        → IV5270B GNDU
+        → 5270B GNDU
     
     VSU terminal (1): ERASE_PROG
-        → IV4156B VSU21
+        → 4156B VSU21
     
     PPG terminal (1): WR_ENB
-        → PG81104A Channel 1
+        → 81104A Channel 1
     
     COUNTER terminal (1): PROG_OUT
-        → CT53230A Channel 1
+        → 53230A Channel 1
 
-Note: This experiment has comfortable resource margins. All terminals
-can be active simultaneously without resource conflicts.
+Compliance Settings:
+    - Voltage sources: 1mA compliance
+    - Current sources: 2V compliance (limits negative voltage)
+    - Current direction: "pulled" (positive = into IV meter)
 """
 
 from .resource_types import (
@@ -48,25 +50,26 @@ PROGRAMMER_TERMINALS = {
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=1,
-        description="Power supply voltage - HR SMU for precision"
+        description="Power supply voltage - 5270B HR SMU"
     ),
     "VCC": TerminalConfig(
         terminal="VCC",
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=2,
-        description="VCC voltage - HR SMU for precision"
+        description="VCC voltage - 5270B HR SMU"
     ),
     "ICELLMEAS": TerminalConfig(
         terminal="ICELLMEAS",
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=3,
-        description="Cell measurement voltage - HR SMU"
+        description="Cell measurement voltage - 5270B HR SMU"
     ),
     
     # ------------------------------------
     # I Terminals - SMU allocation
+    # Current is "pulled" (positive = into meter)
     # ------------------------------------
     "IREFP": TerminalConfig(
         terminal="IREFP",
@@ -219,3 +222,8 @@ PROGRAMMER_COUNTER_CONFIG = {
 # Sequential measurement pairs (none for this experiment)
 PROGRAMMER_SEQUENTIAL_PAIRS = []
 
+# Default voltage values
+PROGRAMMER_DEFAULTS = {
+    "VDD": 1.8,   # Power supply
+    "VCC": 5.0,   # VCC default is 5V
+}

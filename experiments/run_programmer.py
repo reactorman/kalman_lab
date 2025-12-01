@@ -15,11 +15,17 @@ Usage:
     
     --test: Run in TEST_MODE (log commands without hardware)
     --vdd: VDD voltage (default: 1.8V)
+    --vcc: VCC voltage (default: 5.0V)
     --cycles: Number of program/erase cycles (default: 1)
 
 Configuration:
     Terminal mappings are defined in configs/programmer.py
     This script does NOT read the CSV file at runtime.
+
+Compliance Settings:
+    - Voltage sources: 1mA compliance
+    - Current sources: 2V compliance
+    - Current direction: "pulled" (positive = into IV meter)
 """
 
 import sys
@@ -38,6 +44,7 @@ from configs.programmer import (
     PROGRAMMER_BY_TYPE,
     PROGRAMMER_PULSE_CONFIG,
     PROGRAMMER_COUNTER_CONFIG,
+    PROGRAMMER_DEFAULTS,
 )
 from configs.resource_types import MeasurementType, InstrumentType
 
@@ -51,24 +58,26 @@ class ProgrammerExperiment(ExperimentRunner):
     - Pulse generation on WR_ENB
     - Frequency measurement on PROG_OUT
     - Current measurements on IREFP, PROG_IN
+    
+    All currents are "pulled" (positive = into IV meter).
     """
     
-    def __init__(self, test_mode: bool = False, vdd: float = 1.8,
-                 vcc: float = 3.3, erase_prog_voltage: float = 5.0,
+    def __init__(self, test_mode: bool = False, vdd: float = None,
+                 vcc: float = None, erase_prog_voltage: float = 5.0,
                  program_cycles: int = 1):
         """
         Initialize Programmer experiment.
         
         Args:
             test_mode: If True, log commands without hardware
-            vdd: VDD voltage in volts
-            vcc: VCC voltage in volts
+            vdd: VDD voltage in volts (default: 1.8V)
+            vcc: VCC voltage in volts (default: 5.0V)
             erase_prog_voltage: ERASE_PROG voltage for programming
             program_cycles: Number of program/erase cycles
         """
         super().__init__(PROGRAMMER_CONFIG, test_mode)
-        self.vdd = vdd
-        self.vcc = vcc
+        self.vdd = vdd if vdd is not None else PROGRAMMER_DEFAULTS["VDD"]
+        self.vcc = vcc if vcc is not None else PROGRAMMER_DEFAULTS["VCC"]
         self.erase_prog_voltage = erase_prog_voltage
         self.program_cycles = program_cycles
     
@@ -88,6 +97,7 @@ class ProgrammerExperiment(ExperimentRunner):
         self.set_terminal_voltage("ERASE_PROG", 0.0)  # Start at 0V
         
         # Set I terminals to 0A initially
+        # Current is "pulled" (positive = into meter)
         for terminal in PROGRAMMER_BY_TYPE[MeasurementType.I]:
             self.set_terminal_current(terminal, 0.0)
         
@@ -150,9 +160,8 @@ class ProgrammerExperiment(ExperimentRunner):
         # Measure PROG_OUT frequency
         results["frequency"] = self.measure_frequency("PROG_OUT")
         
-        # Measure ICELLMEAS voltage
-        # (configured as V, but we're monitoring it)
-        results["icellmeas"] = self.measure_terminal_current("IREFP")
+        # Measure reference current (pulled into meter)
+        results["irefp"] = self.measure_terminal_current("IREFP")
         
         # Return ERASE_PROG to safe level
         self.set_terminal_voltage("ERASE_PROG", 0.0)
@@ -183,7 +192,7 @@ class ProgrammerExperiment(ExperimentRunner):
         # Measure PROG_OUT frequency
         results["frequency"] = self.measure_frequency("PROG_OUT")
         
-        # Measure reference current
+        # Measure reference current (pulled into meter)
         results["irefp"] = self.measure_terminal_current("IREFP")
         
         # Return ERASE_PROG to safe level
@@ -291,8 +300,8 @@ def main():
     parser.add_argument(
         '--vcc',
         type=float,
-        default=3.3,
-        help='VCC voltage in volts (default: 3.3)'
+        default=5.0,
+        help='VCC voltage in volts (default: 5.0)'
     )
     parser.add_argument(
         '--erase-prog-voltage',
@@ -337,4 +346,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -10,23 +10,25 @@ based on the CSV specification and resource allocation rules.
 
 Resource Allocation Summary:
     V terminals (2): OUT2, OUT1
-        → IV5270B HR SMUs (channels 1-2)
+        → 5270B HR SMUs (channels 1-2)
     
     I terminals (10): TRIM2, F11, TRIM1, F12, X2, X1, KGAIN2, KGAIN1, IREFP, IMEAS
-        → IV5270B channels 3-8 (6 channels)
-        → IV4156B channels 1-4 (4 channels)
+        → 5270B channels 3-8 (6 channels)
+        → 4156B channels 1-4 (4 channels)
     
     GNDU terminal (1): VSS
-        → IV5270B GNDU
+        → 5270B GNDU
     
     VSU terminals (2): VDD, VCC
-        → IV4156B VSU21, VSU22
+        → 4156B VSU21, VSU22
     
     PPG terminal (1): ERASE_PROG
-        → PG81104A Channel 1
+        → 81104A Channel 1
 
-Note: With VDD and VCC as VSU instead of V, all I terminals now fit
-within available SMU channels without resource conflicts.
+Compliance Settings:
+    - Voltage sources: 1mA compliance
+    - Current sources: 2V compliance (limits negative voltage)
+    - Current direction: "pulled" (positive = into IV meter)
 """
 
 from .resource_types import (
@@ -46,60 +48,61 @@ COMPUTE_TERMINALS = {
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=1,
-        description="Output 2 voltage measurement - HR SMU"
+        description="Output 2 voltage measurement - 5270B HR SMU"
     ),
     "OUT1": TerminalConfig(
         terminal="OUT1",
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=2,
-        description="Output 1 voltage measurement - HR SMU"
+        description="Output 1 voltage measurement - 5270B HR SMU"
     ),
     
     # ------------------------------------
     # I Terminals - SMU allocation (any SMU)
+    # Current is "pulled" (positive = into meter)
     # ------------------------------------
     "TRIM2": TerminalConfig(
         terminal="TRIM2",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=3,
-        description="Trim current 2 - HR SMU"
+        description="Trim current 2 - 5270B HR SMU"
     ),
     "F11": TerminalConfig(
         terminal="F11",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=4,
-        description="F11 current measurement - HR SMU"
+        description="F11 current measurement - 5270B HR SMU"
     ),
     "TRIM1": TerminalConfig(
         terminal="TRIM1",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=5,
-        description="Trim current 1 - MP SMU"
+        description="Trim current 1 - 5270B MP SMU"
     ),
     "F12": TerminalConfig(
         terminal="F12",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=6,
-        description="F12 current measurement - MP SMU"
+        description="F12 current measurement - 5270B MP SMU"
     ),
     "X2": TerminalConfig(
         terminal="X2",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=7,
-        description="X2 current measurement - MP SMU"
+        description="X2 current measurement - 5270B MP SMU"
     ),
     "X1": TerminalConfig(
         terminal="X1",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=8,
-        description="X1 current measurement - MP SMU"
+        description="X1 current measurement - 5270B MP SMU"
     ),
     "KGAIN2": TerminalConfig(
         terminal="KGAIN2",
@@ -241,5 +244,11 @@ COMPUTE_PULSE_CONFIG = {
     }
 }
 
-# Sequential measurement pairs (none needed - all channels now have dedicated resources)
+# Sequential measurement pairs (none needed - all channels have dedicated resources)
 COMPUTE_SEQUENTIAL_PAIRS = []
+
+# Default voltage values
+COMPUTE_DEFAULTS = {
+    "VDD": 1.8,   # Power supply
+    "VCC": 5.0,   # VCC default is 5V
+}

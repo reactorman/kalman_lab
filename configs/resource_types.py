@@ -8,14 +8,14 @@ allocation of terminals to instrument channels.
 
 Measurement Types (from CSV):
     V    - Voltage measurement/force (requires high-resolution SMU)
-    I    - Current measurement/force (any SMU)
+    I    - Current measurement/force (any SMU) - "pulled" direction
     GNDU - Ground unit (5270B GNDU only)
     VSU  - Voltage source unit (any SMU or 4156B VSU)
     PPG  - Pulse pattern generator (81104A)
     COUNTER - Frequency/time measurement (53230A)
 
 Instrument Capabilities:
-    Keysight E5270B:
+    Keysight 5270B:
         - Channels 1-4: High-Resolution SMUs (priority for V)
         - Channels 5-8: Medium-Power SMUs
         - GNDU: Ground unit (for GNDU terminals only)
@@ -29,6 +29,11 @@ Instrument Capabilities:
     
     Keysight 53230A:
         - Channels 1-3: Counter inputs (for COUNTER)
+
+Compliance Settings:
+    - Voltage sources: 1mA (0.001A) current compliance
+    - Current sources: 2V voltage compliance
+    - Current direction: "pulled" (positive = flowing into IV meter)
 """
 
 from enum import Enum, auto
@@ -38,7 +43,7 @@ from typing import Dict, List, NamedTuple
 class MeasurementType(Enum):
     """Measurement function types from CSV specification."""
     V = auto()       # Voltage force/measure - requires HR SMU
-    I = auto()       # Current force/measure - any SMU
+    I = auto()       # Current force/measure - any SMU, "pulled" direction
     GNDU = auto()    # Ground unit - 5270B GNDU only
     VSU = auto()     # Voltage source - any SMU or 4156B VSU
     PPG = auto()     # Pulse generator - 81104A
@@ -47,7 +52,7 @@ class MeasurementType(Enum):
 
 class InstrumentType(Enum):
     """Available instrument types."""
-    IV5270B = "IV5270B"      # Keysight E5270B Precision IV Analyzer
+    IV5270B = "IV5270B"      # Keysight 5270B Precision IV Analyzer
     IV4156B = "IV4156B"      # Agilent 4156B Semiconductor Parameter Analyzer
     PG81104A = "PG81104A"    # Agilent 81104A Pulse Generator
     CT53230A = "CT53230A"    # Keysight 53230A Counter
@@ -76,40 +81,40 @@ class ChannelInfo(NamedTuple):
 # Instrument Channel Definitions
 # ============================================================================
 
-# Keysight E5270B channels
+# Keysight 5270B channels
 E5270B_CHANNELS: Dict[int, ChannelInfo] = {
-    1: ChannelInfo(InstrumentType.IV5270B, 1, ChannelType.HR_SMU, "High-Resolution SMU 1"),
-    2: ChannelInfo(InstrumentType.IV5270B, 2, ChannelType.HR_SMU, "High-Resolution SMU 2"),
-    3: ChannelInfo(InstrumentType.IV5270B, 3, ChannelType.HR_SMU, "High-Resolution SMU 3"),
-    4: ChannelInfo(InstrumentType.IV5270B, 4, ChannelType.HR_SMU, "High-Resolution SMU 4"),
-    5: ChannelInfo(InstrumentType.IV5270B, 5, ChannelType.MP_SMU, "Medium-Power SMU 5"),
-    6: ChannelInfo(InstrumentType.IV5270B, 6, ChannelType.MP_SMU, "Medium-Power SMU 6"),
-    7: ChannelInfo(InstrumentType.IV5270B, 7, ChannelType.MP_SMU, "Medium-Power SMU 7"),
-    8: ChannelInfo(InstrumentType.IV5270B, 8, ChannelType.MP_SMU, "Medium-Power SMU 8"),
-    0: ChannelInfo(InstrumentType.IV5270B, 0, ChannelType.GNDU, "Ground Unit"),
+    1: ChannelInfo(InstrumentType.IV5270B, 1, ChannelType.HR_SMU, "5270B High-Resolution SMU 1"),
+    2: ChannelInfo(InstrumentType.IV5270B, 2, ChannelType.HR_SMU, "5270B High-Resolution SMU 2"),
+    3: ChannelInfo(InstrumentType.IV5270B, 3, ChannelType.HR_SMU, "5270B High-Resolution SMU 3"),
+    4: ChannelInfo(InstrumentType.IV5270B, 4, ChannelType.HR_SMU, "5270B High-Resolution SMU 4"),
+    5: ChannelInfo(InstrumentType.IV5270B, 5, ChannelType.MP_SMU, "5270B Medium-Power SMU 5"),
+    6: ChannelInfo(InstrumentType.IV5270B, 6, ChannelType.MP_SMU, "5270B Medium-Power SMU 6"),
+    7: ChannelInfo(InstrumentType.IV5270B, 7, ChannelType.MP_SMU, "5270B Medium-Power SMU 7"),
+    8: ChannelInfo(InstrumentType.IV5270B, 8, ChannelType.MP_SMU, "5270B Medium-Power SMU 8"),
+    0: ChannelInfo(InstrumentType.IV5270B, 0, ChannelType.GNDU, "5270B Ground Unit"),
 }
 
 # Agilent 4156B channels
 A4156B_CHANNELS: Dict[int, ChannelInfo] = {
-    1: ChannelInfo(InstrumentType.IV4156B, 1, ChannelType.SMU, "SMU 1"),
-    2: ChannelInfo(InstrumentType.IV4156B, 2, ChannelType.SMU, "SMU 2"),
-    3: ChannelInfo(InstrumentType.IV4156B, 3, ChannelType.SMU, "SMU 3"),
-    4: ChannelInfo(InstrumentType.IV4156B, 4, ChannelType.SMU, "SMU 4"),
-    21: ChannelInfo(InstrumentType.IV4156B, 21, ChannelType.VSU, "Voltage Source Unit 1"),
-    22: ChannelInfo(InstrumentType.IV4156B, 22, ChannelType.VSU, "Voltage Source Unit 2"),
+    1: ChannelInfo(InstrumentType.IV4156B, 1, ChannelType.SMU, "4156B SMU 1"),
+    2: ChannelInfo(InstrumentType.IV4156B, 2, ChannelType.SMU, "4156B SMU 2"),
+    3: ChannelInfo(InstrumentType.IV4156B, 3, ChannelType.SMU, "4156B SMU 3"),
+    4: ChannelInfo(InstrumentType.IV4156B, 4, ChannelType.SMU, "4156B SMU 4"),
+    21: ChannelInfo(InstrumentType.IV4156B, 21, ChannelType.VSU, "4156B Voltage Source Unit 1"),
+    22: ChannelInfo(InstrumentType.IV4156B, 22, ChannelType.VSU, "4156B Voltage Source Unit 2"),
 }
 
 # Agilent 81104A channels
 A81104A_CHANNELS: Dict[int, ChannelInfo] = {
-    1: ChannelInfo(InstrumentType.PG81104A, 1, ChannelType.PULSE, "Pulse Output 1"),
-    2: ChannelInfo(InstrumentType.PG81104A, 2, ChannelType.PULSE, "Pulse Output 2"),
+    1: ChannelInfo(InstrumentType.PG81104A, 1, ChannelType.PULSE, "81104A Pulse Output 1"),
+    2: ChannelInfo(InstrumentType.PG81104A, 2, ChannelType.PULSE, "81104A Pulse Output 2"),
 }
 
 # Keysight 53230A channels
 K53230A_CHANNELS: Dict[int, ChannelInfo] = {
-    1: ChannelInfo(InstrumentType.CT53230A, 1, ChannelType.COUNTER_IN, "Counter Input 1"),
-    2: ChannelInfo(InstrumentType.CT53230A, 2, ChannelType.COUNTER_IN, "Counter Input 2"),
-    3: ChannelInfo(InstrumentType.CT53230A, 3, ChannelType.COUNTER_IN, "Counter Input 3"),
+    1: ChannelInfo(InstrumentType.CT53230A, 1, ChannelType.COUNTER_IN, "53230A Counter Input 1"),
+    2: ChannelInfo(InstrumentType.CT53230A, 2, ChannelType.COUNTER_IN, "53230A Counter Input 2"),
+    3: ChannelInfo(InstrumentType.CT53230A, 3, ChannelType.COUNTER_IN, "53230A Counter Input 3"),
 }
 
 
@@ -124,7 +129,7 @@ VALID_CHANNEL_TYPES: Dict[MeasurementType, List[ChannelType]] = {
         ChannelType.MP_SMU,
         ChannelType.SMU,
     ],
-    # I can use any SMU
+    # I can use any SMU - current is "pulled" (into meter)
     MeasurementType.I: [
         ChannelType.HR_SMU,
         ChannelType.MP_SMU,
@@ -172,3 +177,13 @@ class ExperimentConfig(NamedTuple):
     terminals: Dict[str, TerminalConfig]  # Terminal name -> config
     instruments_used: List[InstrumentType]  # List of instruments needed
 
+
+# ============================================================================
+# Default Compliance Settings
+# ============================================================================
+
+# Voltage source compliance: 1mA
+VOLTAGE_COMPLIANCE_DEFAULT = 0.001  # Amps
+
+# Current source compliance: 2V (limits negative voltage on current sources)
+CURRENT_COMPLIANCE_DEFAULT = 2.0  # Volts
