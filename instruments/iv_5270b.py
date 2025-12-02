@@ -140,6 +140,24 @@ class IV5270B(InstrumentBase):
         self.write(f"DI {channel},{i_range},{current},{compliance}")
         self.logger.debug(f"CH{channel}: DI={current}A, Vcomp={compliance}V")
     
+    def set_series_resistor(self, channel: int, enabled: bool) -> None:
+        """
+        Enable or disable series resistor on a channel.
+        
+        The series resistor (1 MOhm) can be inserted in series with
+        the SMU output for high-impedance applications.
+        
+        Args:
+            channel: SMU channel number
+            enabled: True to enable series resistor, False to disable
+        
+        Reference: SSR command - SSR channel, mode (0=off, 1=on)
+        """
+        mode = 1 if enabled else 0
+        self.write(f"SSR {channel},{mode}")
+        state_str = "enabled" if enabled else "disabled"
+        self.logger.info(f"CH{channel}: Series resistor {state_str}")
+    
     # =========================================================================
     # Measurement Mode Configuration
     # =========================================================================

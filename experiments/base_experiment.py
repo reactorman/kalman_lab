@@ -316,6 +316,26 @@ class ExperimentRunner:
         )
         self.logger.info(f"{terminal}: Pulse {width} @ {vhigh}V, x{count}")
     
+    def set_ppg_dc_mode(self, terminal: str, voltage: float) -> None:
+        """
+        Set PPG terminal to DC output mode (constant voltage, no triggering).
+        
+        This configures the PPG to output a steady DC voltage without
+        pulse generation. The output is enabled but never triggered.
+        
+        Args:
+            terminal: PPG terminal name
+            voltage: DC voltage level in volts
+        """
+        cfg = self.get_terminal_config(terminal)
+        
+        if cfg.measurement_type != MeasurementType.PPG:
+            raise ValueError(f"Terminal {terminal} is not a PPG terminal")
+        
+        inst = self._get_instrument(cfg.instrument)
+        inst.set_dc_output(cfg.channel, voltage)
+        self.logger.info(f"{terminal}: DC mode at {voltage}V (enabled, no trigger)")
+    
     def measure_frequency(self, terminal: str, record: bool = True) -> float:
         """
         Measure frequency on COUNTER terminal.

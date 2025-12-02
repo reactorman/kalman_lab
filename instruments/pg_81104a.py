@@ -454,4 +454,33 @@ class PG81104A(InstrumentBase):
             return float(response.strip())
         except ValueError:
             return 0.0
+    
+    # =========================================================================
+    # DC Mode Output
+    # =========================================================================
+    
+    def set_dc_output(self, channel: int, voltage: float) -> None:
+        """
+        Set a channel to output a constant DC voltage.
+        
+        This configures the channel to output a steady DC level without
+        any pulse generation or triggering. Both high and low voltages
+        are set to the same value to produce DC output.
+        
+        Args:
+            channel: Channel number (1 or 2)
+            voltage: DC voltage level in volts
+        
+        Note:
+            The output is enabled but no triggering occurs.
+            To disable, call disable_output() or idle().
+        """
+        # Set both high and low to same value = DC output
+        self.set_voltage_high(channel, voltage)
+        self.set_voltage_low(channel, voltage)
+        
+        # Enable output (no trigger needed for DC)
+        self.enable_output(channel)
+        
+        self.logger.info(f"CH{channel}: DC output at {voltage}V (enabled, no trigger)")
 

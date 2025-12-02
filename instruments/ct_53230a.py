@@ -174,6 +174,23 @@ class CT53230A(InstrumentBase):
         self.write(f"INP{channel}:IMP {impedance}")
         self.logger.info(f"Channel {channel} impedance set to {impedance} Ohm")
     
+    def set_slope(self, channel: int, slope: str = "POS") -> None:
+        """
+        Set the trigger slope (edge direction) for a channel.
+        
+        Args:
+            channel: Input channel (1, 2, or 3)
+            slope: "POS" (rising edge) or "NEG" (falling edge)
+        
+        Reference: INPut:SLOPe command
+        """
+        slope = slope.upper()
+        if slope not in ["POS", "NEG"]:
+            raise ValueError("Slope must be 'POS' or 'NEG'")
+        self.write(f"INP{channel}:SLOP {slope}")
+        edge_str = "rising" if slope == "POS" else "falling"
+        self.logger.info(f"Channel {channel} trigger slope: {edge_str} edge")
+    
     # =========================================================================
     # Measurement Methods
     # =========================================================================
