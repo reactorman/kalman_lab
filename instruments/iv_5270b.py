@@ -13,7 +13,7 @@ Features:
     - High-speed sampling mode
 """
 
-from .base import InstrumentBase
+from .base import InstrumentBase, format_number
 from typing import List, Optional, Tuple
 
 
@@ -121,8 +121,9 @@ class IV5270B(InstrumentBase):
         
         Reference: DV command - DV channel, range, voltage, compliance
         """
-        self.write(f"DV {channel},{v_range},{voltage},{compliance}")
-        self.logger.debug(f"CH{channel}: DV={voltage}V, Icomp={compliance}A")
+        cmd = f"DV {channel},{v_range},{format_number(voltage)},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel}: DV={format_number(voltage)}V, Icomp={format_number(compliance)}A")
     
     def set_current(self, channel: int, current: float,
                    compliance: float = 1.0, i_range: int = 0) -> None:
@@ -137,8 +138,9 @@ class IV5270B(InstrumentBase):
         
         Reference: DI command - DI channel, range, current, compliance
         """
-        self.write(f"DI {channel},{i_range},{current},{compliance}")
-        self.logger.debug(f"CH{channel}: DI={current}A, Vcomp={compliance}V")
+        cmd = f"DI {channel},{i_range},{format_number(current)},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel}: DI={format_number(current)}A, Vcomp={format_number(compliance)}V")
     
     def set_series_resistor(self, channel: int, enabled: bool) -> None:
         """
@@ -229,8 +231,9 @@ class IV5270B(InstrumentBase):
         
         Reference: WV command - WV channel, mode, range, start, stop, steps, Icomp
         """
-        self.write(f"WV {channel},{mode},{v_range},{start},{stop},{steps},{compliance}")
-        self.logger.info(f"CH{channel}: Sweep {start}V to {stop}V in {steps} steps")
+        cmd = f"WV {channel},{mode},{v_range},{format_number(start)},{format_number(stop)},{steps},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.info(f"CH{channel}: Sweep {format_number(start)}V to {format_number(stop)}V in {steps} steps")
     
     # =========================================================================
     # Linear Search (Constant Current Vt)
@@ -249,7 +252,8 @@ class IV5270B(InstrumentBase):
         
         Reference: LGI command
         """
-        self.write(f"LGI {measure_channel},{polarity},{i_range},{target_current}")
+        cmd = f"LGI {measure_channel},{polarity},{i_range},{format_number(target_current)}"
+        self.write(cmd)
     
     def configure_linear_search_voltage(self, sweep_channel: int, v_range: int,
                                         start: float, stop: float, step: float,
@@ -259,7 +263,8 @@ class IV5270B(InstrumentBase):
         
         Reference: LSV command
         """
-        self.write(f"LSV {sweep_channel},{v_range},{start},{stop},{step},{compliance}")
+        cmd = f"LSV {sweep_channel},{v_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        self.write(cmd)
     
     def set_linear_search_output(self, format_mode: int) -> None:
         """
@@ -278,7 +283,8 @@ class IV5270B(InstrumentBase):
         
         Reference: LSTM command
         """
-        self.write(f"LSTM {hold},{delay}")
+        cmd = f"LSTM {format_number(hold)},{format_number(delay)}"
+        self.write(cmd)
     
     def set_linear_search_abort(self, mode: int, post_condition: int) -> None:
         """
@@ -303,7 +309,8 @@ class IV5270B(InstrumentBase):
         
         Reference: BGI command
         """
-        self.write(f"BGI {measure_channel},{polarity},{i_range},{target_current}")
+        cmd = f"BGI {measure_channel},{polarity},{i_range},{format_number(target_current)}"
+        self.write(cmd)
     
     def configure_binary_search_voltage(self, sweep_channel: int, v_range: int,
                                         start: float, stop: float, step: float,
@@ -313,7 +320,8 @@ class IV5270B(InstrumentBase):
         
         Reference: BSV command
         """
-        self.write(f"BSV {sweep_channel},{v_range},{start},{stop},{step},{compliance}")
+        cmd = f"BSV {sweep_channel},{v_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        self.write(cmd)
     
     def set_binary_search_output(self, format_mode: int) -> None:
         """Set binary search output format. Reference: BSVM command"""
@@ -321,7 +329,8 @@ class IV5270B(InstrumentBase):
     
     def set_binary_search_timing(self, hold: float, delay: float) -> None:
         """Set binary search timing. Reference: BST command"""
-        self.write(f"BST {hold},{delay}")
+        cmd = f"BST {format_number(hold)},{format_number(delay)}"
+        self.write(cmd)
     
     def set_binary_search_abort(self, mode: int, abort_cond: int, 
                                 post_condition: int) -> None:
@@ -502,12 +511,12 @@ class IV5270B(InstrumentBase):
         for ch, volt in enumerate(voltages, start=1):
             if volt is not None:
                 all_ch.append(ch)
-                all_force.append(f"DV {ch},0,{volt},100E-3")
+                all_force.append(f"DV {ch},0,{format_number(volt)},{format_number(100E-3)}")
         
         for ch, current in enumerate(currents, start=1):
             if current is not None:
                 all_ch.append(ch)
-                all_force.append(f"DI {ch},0,{current},1")
+                all_force.append(f"DI {ch},0,{format_number(current)},{format_number(1.0)}")
         
         channels = ",".join(str(i) for i in all_ch)
         self.write(f"CN {channels}")
@@ -544,7 +553,7 @@ class IV5270B(InstrumentBase):
         self.set_measurement_mode(16, [1, 2, 3])
         
         # Set bias
-        self.set_voltage(4, voltage, compliance=0.1)
+        self.set_voltage(4, voltage, compliance=0.1)  # voltage is already a float parameter
         
         # Configure sweep trigger
         self.write(f"WV 6,1,0,0,1,{samples}")

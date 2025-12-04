@@ -243,7 +243,7 @@ class ComputeExperiment(ExperimentRunner):
                 terminals = COMPUTE_LINKED_PARAMETERS[param_name]["terminals"]
                 for terminal in terminals:
                     self.set_terminal_current(terminal, value)
-                self.logger.debug(f"{param_name} (linked): {value}A → {terminals}")
+                self.logger.debug(f"{param_name} (linked): {value}A -> {terminals}")
             else:
                 # Single terminal
                 self.set_terminal_current(param_name, value)
@@ -268,21 +268,29 @@ class ComputeExperiment(ExperimentRunner):
     
     def execute_sync_sweep(self) -> Dict[str, Any]:
         """
-        Execute synchronous sweep of X1 and IMEAS.
+        Execute synchronous sweep of X1 with IMEAS offset.
         
-        X1 and IMEAS are swept synchronously while measuring current on
-        OUT1 and OUT2 at each step.
+        X1 is swept as the primary channel. IMEAS is set as an offset from X1.
+        Multiple sweeps are performed, one for each offset value.
+        
+        Offset values: -20e-9, -10e-9, 0, 10e-9, 20e-9 (5 sweeps total)
+        For each offset, IMEAS = X1 + offset at each sweep point.
         
         Note: This method only changes current values on SMU channels.
         Channel initialization and measurement mode are set once at experiment start.
         
         Returns:
             Dictionary with sweep results including:
-            - sweep_points: List of (X1_current, IMEAS_current) tuples
-            - OUT1_currents: List of measured currents
-            - OUT2_currents: List of measured currents
+            - offset_sweeps: List of dictionaries, one per offset, each containing:
+              - offset: The IMEAS offset value used
+              - sweep_points: List of (X1_current, IMEAS_current) tuples
+              - OUT1_currents: List of measured currents
+              - OUT2_currents: List of measured currents
         """
-        self.logger.info("Executing synchronous sweep...")
+        self.logger.info("Executing synchronous sweep with IMEAS offsets...")
+        
+        # Define IMEAS offset values: -20e-9 to 20e-9 in steps of 10e-9
+        imeas_offsets = [-20e-9, -10e-9, 0.0, 10e-9, 20e-9]
         
         # Get 5270B instrument (all sync sweep terminals are on it)
         inst = self._get_instrument(InstrumentType.IV5270B)
@@ -293,11 +301,10 @@ class ComputeExperiment(ExperimentRunner):
         out1_cfg = self.get_terminal_config("OUT1")
         out2_cfg = self.get_terminal_config("OUT2")
         
-        # Calculate sweep points
+        # Calculate X1 sweep points (IMEAS is now offset-based, not independent)
         x1_config = self.sync_sweep_config["X1"]
-        imeas_config = self.sync_sweep_config["IMEAS"]
         
-        # Generate sweep points
+        # Generate X1 sweep points
         x1_points = []
         current = x1_config["start"]
         step = x1_config["step"] if x1_config["step"] != 0 else 1
@@ -305,75 +312,80 @@ class ComputeExperiment(ExperimentRunner):
             x1_points.append(current)
             current += step
         
-        imeas_points = []
-        current = imeas_config["start"]
-        step = imeas_config["step"] if imeas_config["step"] != 0 else 1
-        while current <= imeas_config["stop"]:
-            imeas_points.append(current)
-            current += step
-        
-        # Use shorter list length for sync
-        num_points = min(len(x1_points), len(imeas_points))
-        if num_points == 0:
-            num_points = 1
+        if len(x1_points) == 0:
             x1_points = [x1_config["start"]]
-            imeas_points = [imeas_config["start"]]
+        
+        num_points = len(x1_points)
         
         results = {
-            "sweep_points": [],
-            "OUT1_currents": [],
-            "OUT2_currents": [],
+            "offset_sweeps": [],
         }
         
-        self.logger.debug(f"Sweep: {num_points} points")
+        self.logger.info(f"X1 sweep: {num_points} points")
+        self.logger.info(f"IMEAS offsets: {len(imeas_offsets)} values ({imeas_offsets})")
         
-        # Execute sweep - ONLY changing current values
-        for i in range(num_points):
-            x1_val = x1_points[i]
-            imeas_val = imeas_points[i]
+        # Execute sweep for each offset value
+        for offset_idx, imeas_offset in enumerate(imeas_offsets):
+            self.logger.info(f"Offset sweep {offset_idx + 1}/{len(imeas_offsets)}: IMEAS offset = {imeas_offset}A")
             
-            # Set sweep source currents (this is the ONLY thing that changes)
-            inst.set_current(x1_cfg.channel, x1_val, compliance=2.0)
-            inst.set_current(imeas_cfg.channel, imeas_val, compliance=2.0)
+            offset_results = {
+                "offset": imeas_offset,
+                "sweep_points": [],
+                "OUT1_currents": [],
+                "OUT2_currents": [],
+            }
             
-            # Execute measurement and read data
-            # Channels are already configured for measurement
-            inst.execute_measurement()
-            data = inst.read_data()
-            
-            # Parse OUT1 and OUT2 currents from measurement data
-            # The format depends on how the instrument was configured
-            try:
-                # Try to parse two current values from the response
-                parts = data.replace(",", " ").split()
-                out1_current = 0.0
-                out2_current = 0.0
-                current_values = []
-                for part in parts:
-                    if "I" in part or "E" in part.upper():
-                        try:
-                            val = float(part.replace("I", "").strip())
-                            current_values.append(val)
-                        except ValueError:
+            # Execute sweep - ONLY changing current values
+            for i in range(num_points):
+                x1_val = x1_points[i]
+                imeas_val = x1_val + imeas_offset  # IMEAS = X1 + offset
+                
+                # Set sweep source currents (this is the ONLY thing that changes)
+                inst.set_current(x1_cfg.channel, x1_val, compliance=2.0)
+                inst.set_current(imeas_cfg.channel, imeas_val, compliance=2.0)
+                
+                # Execute measurement and read data
+                # Channels are already configured for measurement
+                inst.execute_measurement()
+                data = inst.read_data()
+                
+                # Parse OUT1 and OUT2 currents from measurement data
+                # The format depends on how the instrument was configured
+                try:
+                    # Try to parse two current values from the response
+                    parts = data.replace(",", " ").split()
+                    out1_current = 0.0
+                    out2_current = 0.0
+                    current_values = []
+                    for part in parts:
+                        if "I" in part or "E" in part.upper():
                             try:
-                                val = float(part.strip())
+                                val = float(part.replace("I", "").strip())
                                 current_values.append(val)
                             except ValueError:
-                                pass
-                if len(current_values) >= 2:
-                    out1_current = current_values[0]
-                    out2_current = current_values[1]
-                elif len(current_values) == 1:
-                    out1_current = current_values[0]
-            except (IndexError, ValueError):
-                out1_current = 0.0
-                out2_current = 0.0
+                                try:
+                                    val = float(part.strip())
+                                    current_values.append(val)
+                                except ValueError:
+                                    pass
+                    if len(current_values) >= 2:
+                        out1_current = current_values[0]
+                        out2_current = current_values[1]
+                    elif len(current_values) == 1:
+                        out1_current = current_values[0]
+                except (IndexError, ValueError):
+                    out1_current = 0.0
+                    out2_current = 0.0
+                
+                offset_results["sweep_points"].append((x1_val, imeas_val))
+                offset_results["OUT1_currents"].append(out1_current)
+                offset_results["OUT2_currents"].append(out2_current)
             
-            results["sweep_points"].append((x1_val, imeas_val))
-            results["OUT1_currents"].append(out1_current)
-            results["OUT2_currents"].append(out2_current)
+            results["offset_sweeps"].append(offset_results)
+            self.logger.debug(f"Offset {imeas_offset}A: {num_points} points complete")
         
-        self.logger.info(f"Sweep complete: {num_points} points")
+        total_points = num_points * len(imeas_offsets)
+        self.logger.info(f"Sweep complete: {len(imeas_offsets)} offset sweeps, {total_points} total points")
         
         return results
     
@@ -683,7 +695,16 @@ def main():
     
     if results['measurements']['ERASE']:
         first = results['measurements']['ERASE'][0]
-        print(f"Sweep points per measurement: {len(first['sweep_results']['sweep_points'])}")
+        if 'offset_sweeps' in first['sweep_results']:
+            # New structure with offset sweeps
+            num_offsets = len(first['sweep_results']['offset_sweeps'])
+            if num_offsets > 0:
+                points_per_offset = len(first['sweep_results']['offset_sweeps'][0]['sweep_points'])
+                print(f"Sweep structure: {num_offsets} offset sweeps, {points_per_offset} points per offset")
+                print(f"Total sweep points per measurement: {num_offsets * points_per_offset}")
+        elif 'sweep_points' in first['sweep_results']:
+            # Old structure (backward compatibility)
+            print(f"Sweep points per measurement: {len(first['sweep_results']['sweep_points'])}")
     print("=" * 60)
 
 

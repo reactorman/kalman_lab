@@ -14,7 +14,7 @@ Features:
     - FLEX command syntax
 """
 
-from .base import InstrumentBase
+from .base import InstrumentBase, format_number
 from typing import List, Tuple, Optional
 
 
@@ -120,8 +120,9 @@ class IV4156B(InstrumentBase):
         
         Reference: DV command - DV channel, range, voltage, compliance
         """
-        self.write(f"DV {channel},{v_range},{voltage},{compliance}")
-        self.logger.debug(f"CH{channel}: DV={voltage}V, Icomp={compliance}A")
+        cmd = f"DV {channel},{v_range},{format_number(voltage)},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel}: DV={format_number(voltage)}V, Icomp={format_number(compliance)}A")
     
     def set_current(self, channel: int, current: float,
                    compliance: float = 100.0, i_range: int = 0) -> None:
@@ -136,8 +137,9 @@ class IV4156B(InstrumentBase):
         
         Reference: DI command - DI channel, range, current, compliance
         """
-        self.write(f"DI {channel},{i_range},{current},{compliance}")
-        self.logger.debug(f"CH{channel}: DI={current}A, Vcomp={compliance}V")
+        cmd = f"DI {channel},{i_range},{format_number(current)},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel}: DI={format_number(current)}A, Vcomp={format_number(compliance)}V")
     
     def set_vsu_voltage(self, vsu_channel: int, voltage: float) -> None:
         """
@@ -150,8 +152,9 @@ class IV4156B(InstrumentBase):
         Reference: DV command for VSU
         """
         self.write(f"CN {vsu_channel}")
-        self.write(f"DV {vsu_channel},0,{voltage}")
-        self.logger.debug(f"VSU{vsu_channel}: {voltage}V")
+        cmd = f"DV {vsu_channel},0,{format_number(voltage)}"
+        self.write(cmd)
+        self.logger.debug(f"VSU{vsu_channel}: {format_number(voltage)}V")
     
     # =========================================================================
     # Measurement Mode Configuration
@@ -212,7 +215,8 @@ class IV4156B(InstrumentBase):
         Reference: WV command - WV channel, mode, range, start, stop, step, Icomp
         """
         # mode=1 for linear sweep
-        self.write(f"WV {channel},1,{v_range},{start},{stop},{step},{compliance}")
+        cmd = f"WV {channel},1,{v_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        self.write(cmd)
         self.logger.info(f"CH{channel}: Sweep {start}V to {stop}V, step={step}V")
     
     def configure_current_sweep(self, channel: int, start: float, stop: float,
@@ -231,7 +235,8 @@ class IV4156B(InstrumentBase):
         
         Reference: WI command
         """
-        self.write(f"WI {channel},1,{i_range},{start},{stop},{step},{compliance}")
+        cmd = f"WI {channel},1,{i_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        self.write(cmd)
         self.logger.info(f"CH{channel}: Current sweep {start}A to {stop}A")
     
     # =========================================================================
@@ -251,8 +256,9 @@ class IV4156B(InstrumentBase):
         
         Reference: LGI command
         """
-        self.write(f"LGI {measure_channel},{polarity},{i_range},{target_current}")
-        self.logger.info(f"Linear search: CH{measure_channel}, Itarget={target_current}A")
+        cmd = f"LGI {measure_channel},{polarity},{i_range},{format_number(target_current)}"
+        self.write(cmd)
+        self.logger.info(f"Linear search: CH{measure_channel}, Itarget={format_number(target_current)}A")
     
     def configure_linear_search_voltage(self, sweep_channel: int, v_range: int,
                                         start: float, stop: float, step: float,
@@ -270,7 +276,8 @@ class IV4156B(InstrumentBase):
         
         Reference: LSV command
         """
-        self.write(f"LSV {sweep_channel},{v_range},{start},{stop},{step},{compliance}")
+        cmd = f"LSV {sweep_channel},{v_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        self.write(cmd)
     
     def set_linear_search_output(self, format_mode: int) -> None:
         """

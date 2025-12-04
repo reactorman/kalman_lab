@@ -21,11 +21,9 @@ from typing import Dict, List, Optional, Any
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pyvisa
-
 from instruments.base import (
     set_test_mode, get_test_mode, ensure_directories,
-    initialize_csv, TEST_COMMANDS_FILE, LOG_DIR
+    initialize_csv, TEST_COMMANDS_FILE, LOG_DIR, get_timing_tracker
 )
 from instruments import CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560
 from configs.resource_types import (
@@ -101,10 +99,11 @@ class ExperimentRunner:
             self.logger.info(f"Commands logged to: {TEST_COMMANDS_FILE}")
             self.logger.info("=" * 60)
         
-        # Initialize PyVISA
+        # Initialize PyVISA (only when not in test mode)
         self.rm = None
         if not test_mode:
             try:
+                import pyvisa
                 self.rm = pyvisa.ResourceManager()
                 self.logger.info("PyVISA ResourceManager initialized")
             except Exception as e:
@@ -425,6 +424,26 @@ class ExperimentRunner:
         
         self.idle_all()
         self.close_all()
+        
+        # Log timing information in test mode
+        if self.test_mode:
+            tracker = get_timing_tracker()
+            python_runtime, command_runtime, sweep_runtime, total_runtime = tracker.get_estimated_runtimes()
+            
+            self.logger.info("=" * 60)
+            self.logger.info("TEST MODE RUNTIME ESTIMATION")
+            self.logger.info("=" * 60)
+            self.logger.info(f"Total Commands: {tracker.command_count}")
+            self.logger.info(f"  - Sweep Commands (4156B/5270B): {tracker.sweep_count}")
+            self.logger.info(f"  - Other Commands: {tracker.command_count - tracker.sweep_count}")
+            self.logger.info("")
+            self.logger.info("Runtime Breakdown:")
+            self.logger.info(f"  Python Runtime:     {python_runtime:.3f} s")
+            self.logger.info(f"  Command Runtime:    {command_runtime:.3f} s ({tracker.command_count - tracker.sweep_count} commands x 1 ms)")
+            self.logger.info(f"  Sweep Runtime:      {sweep_runtime:.3f} s ({tracker.sweep_count} sweeps x 1 s)")
+            self.logger.info(f"  ------------------------------")
+            self.logger.info(f"  Total Runtime:      {total_runtime:.3f} s")
+            self.logger.info("=" * 60)
         
         self.logger.info("Experiment shutdown complete")
     

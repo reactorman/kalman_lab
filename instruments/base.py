@@ -12,11 +12,68 @@ Provides common functionality for all instrument classes including:
 import os
 import csv
 import logging
+import time
 from datetime import datetime
 from typing import Optional, Any, Union
 
 # Global TEST_MODE flag - when True, commands are logged instead of sent
 TEST_MODE = False
+
+# Global timing tracker for test mode
+class TimingTracker:
+    """Tracks command execution timing for test mode runtime estimation."""
+    def __init__(self):
+        self.start_time: Optional[float] = None
+        self.command_count: int = 0
+        self.sweep_count: int = 0
+        self.sweep_commands = {'WV', 'WI', 'LSV', 'BSV'}  # Sweep commands for 4156B/5270B
+        self.sweep_instruments = {'IV4156B', 'IV5270B'}  # Instruments with sweep commands
+    
+    def start(self) -> None:
+        """Start timing."""
+        self.start_time = time.time()
+        self.command_count = 0
+        self.sweep_count = 0
+    
+    def record_command(self, instrument_name: str, command: str) -> None:
+        """Record a command for timing estimation."""
+        if not TEST_MODE:
+            return
+        
+        self.command_count += 1
+        
+        # Check if this is a sweep command for 4156B or 5270B
+        if instrument_name in self.sweep_instruments:
+            # Check if command starts with a sweep command
+            command_upper = command.strip().upper()
+            for sweep_cmd in self.sweep_commands:
+                if command_upper.startswith(sweep_cmd + ' ') or command_upper == sweep_cmd:
+                    self.sweep_count += 1
+                    break
+    
+    def get_elapsed_time(self) -> float:
+        """Get elapsed time in seconds."""
+        if self.start_time is None:
+            return 0.0
+        return time.time() - self.start_time
+    
+    def get_estimated_runtimes(self) -> tuple:
+        """
+        Calculate estimated runtimes.
+        
+        Returns:
+            (python_runtime, command_runtime, sweep_runtime, total_runtime)
+            All times in seconds.
+        """
+        python_runtime = self.get_elapsed_time()
+        command_runtime = (self.command_count - self.sweep_count) * 0.001  # 1ms per non-sweep command
+        sweep_runtime = self.sweep_count * 1.0  # 1s per sweep command
+        total_runtime = python_runtime + command_runtime + sweep_runtime
+        
+        return python_runtime, command_runtime, sweep_runtime, total_runtime
+
+# Global timing tracker instance
+_timing_tracker = TimingTracker()
 
 # Paths for logs and measurements
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
@@ -34,6 +91,13 @@ def set_test_mode(enabled: bool) -> None:
     """
     global TEST_MODE
     TEST_MODE = enabled
+    if enabled:
+        _timing_tracker.start()
+
+
+def get_timing_tracker() -> TimingTracker:
+    """Get the global timing tracker instance."""
+    return _timing_tracker
 
 
 def get_test_mode() -> bool:
@@ -57,6 +121,80 @@ def initialize_csv() -> None:
         with open(RESULTS_FILE, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['Instrument', 'Function', 'Value', 'Units', 'Timestamp'])
+
+
+def format_number(value: Union[int, float], 
+                  max_sig_digits: int = 12,
+                  use_scientific_threshold: float = 1e-3) -> str:
+    """
+    Format a number for instrument commands to avoid floating-point precision issues.
+    
+    This function ensures that numbers are formatted consistently and avoid
+    issues like "4.9999999999999996e-06" instead of "5E-6".
+    
+    Args:
+        value: Number to format (int or float)
+        max_sig_digits: Maximum significant digits to use (default: 12)
+        use_scientific_threshold: Use scientific notation below this value (default: 1e-3)
+    
+    Returns:
+        Formatted number string suitable for instrument commands
+    
+    Examples:
+        format_number(5e-6) -> "5E-6"
+        format_number(1.5) -> "1.5"
+        format_number(0.0001) -> "1E-4"
+        format_number(100.0) -> "100"
+    """
+    if isinstance(value, int):
+        return str(value)
+    
+    # Handle zero
+    if value == 0.0:
+        return "0"
+    
+    # Handle negative numbers
+    sign = "-" if value < 0 else ""
+    abs_value = abs(value)
+    
+    # Use scientific notation for very small numbers
+    if abs_value < use_scientific_threshold:
+        # Format in scientific notation with proper precision
+        # Use 'E' format (uppercase) as many instruments prefer it
+        formatted = f"{abs_value:.{max_sig_digits-1}E}"
+        # Remove unnecessary zeros and normalize format
+        # e.g., "5.000000E-06" -> "5E-6"
+        if 'E' in formatted:
+            mantissa, exponent = formatted.split('E')
+            mantissa = mantissa.rstrip('0').rstrip('.')
+            exp_num = int(exponent)
+            # Format exponent - Python's E format already includes the sign
+            # Simplify: "1E-6" instead of "1.0E-06"
+            if mantissa == "1":
+                return f"{sign}1E{exp_num}"
+            else:
+                return f"{sign}{mantissa}E{exp_num}"
+        return f"{sign}{formatted}"
+    
+    # For larger numbers, use decimal notation
+    # Round to avoid floating-point precision issues
+    # Use enough decimal places to preserve precision but avoid unnecessary digits
+    # First, round to reasonable precision to avoid floating-point artifacts
+    import math
+    if abs_value >= 1:
+        # For numbers >= 1, round to 12 significant digits
+        if abs_value != 0:
+            magnitude = math.floor(math.log10(abs_value))
+            rounded = round(abs_value, max_sig_digits - 1 - magnitude)
+        else:
+            rounded = abs_value
+        formatted = f"{rounded:.12f}".rstrip('0').rstrip('.')
+    else:
+        # For numbers between threshold and 1, use more precision
+        rounded = round(abs_value, max_sig_digits)
+        formatted = f"{rounded:.12f}".rstrip('0').rstrip('.')
+    
+    return f"{sign}{formatted}"
 
 
 class InstrumentBase:
@@ -121,7 +259,10 @@ class InstrumentBase:
         timestamp = datetime.now().isoformat()
         
         if TEST_MODE:
-            # Log command to test file
+            # Track command for timing estimation
+            _timing_tracker.record_command(self.name, command)
+            
+            # Log command to test file with improved formatting
             with open(TEST_COMMANDS_FILE, 'a') as f:
                 f.write(f"{timestamp} | {self.name} | WRITE | {command}\n")
             self.logger.debug(f"TEST_MODE WRITE: {command}")
@@ -145,6 +286,9 @@ class InstrumentBase:
         timestamp = datetime.now().isoformat()
         
         if TEST_MODE:
+            # Track read as a command (1ms overhead)
+            _timing_tracker.record_command(self.name, "READ")
+            
             response = "TEST_MODE_RESPONSE"
             with open(TEST_COMMANDS_FILE, 'a') as f:
                 f.write(f"{timestamp} | {self.name} | READ | {response}\n")
@@ -174,6 +318,10 @@ class InstrumentBase:
         timestamp = datetime.now().isoformat()
         
         if TEST_MODE:
+            # Track query as a command (1ms overhead for the write part)
+            # Note: query is write + read, but we count it as one command
+            _timing_tracker.record_command(self.name, command)
+            
             response = "TEST_MODE_RESPONSE"
             with open(TEST_COMMANDS_FILE, 'a') as f:
                 f.write(f"{timestamp} | {self.name} | QUERY | {command} -> {response}\n")

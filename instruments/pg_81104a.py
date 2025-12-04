@@ -13,7 +13,7 @@ Features:
     - External/internal triggering
 """
 
-from .base import InstrumentBase
+from .base import InstrumentBase, format_number
 from typing import Optional
 
 
@@ -236,8 +236,9 @@ class PG81104A(InstrumentBase):
         
         Reference: :VOLT:HIGH command
         """
-        self.write(f":VOLT{channel}:HIGH {voltage}")
-        self.logger.debug(f"CH{channel} Vhigh: {voltage}V")
+        cmd = f":VOLT{channel}:HIGH {format_number(voltage)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel} Vhigh: {format_number(voltage)}V")
     
     def set_voltage_low(self, channel: int, voltage: float) -> None:
         """
@@ -249,8 +250,9 @@ class PG81104A(InstrumentBase):
         
         Reference: :VOLT:LOW command
         """
-        self.write(f":VOLT{channel}:LOW {voltage}")
-        self.logger.debug(f"CH{channel} Vlow: {voltage}V")
+        cmd = f":VOLT{channel}:LOW {format_number(voltage)}"
+        self.write(cmd)
+        self.logger.debug(f"CH{channel} Vlow: {format_number(voltage)}V")
     
     def set_polarity(self, channel: int, polarity: str = "NORM") -> None:
         """

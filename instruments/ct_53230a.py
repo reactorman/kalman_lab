@@ -13,7 +13,7 @@ Features:
     - Ratio measurement
 """
 
-from .base import InstrumentBase
+from .base import InstrumentBase, format_number
 
 
 class CT53230A(InstrumentBase):
@@ -127,8 +127,9 @@ class CT53230A(InstrumentBase):
         
         Reference: SENSe:FREQuency:GATE:TIME command
         """
-        self.write(f"SENS:FREQ:GATE:TIME {gate_time}")
-        self.logger.info(f"Gate time set to {gate_time} s")
+        cmd = f"SENS:FREQ:GATE:TIME {format_number(gate_time)}"
+        self.write(cmd)
+        self.logger.info(f"Gate time set to {format_number(gate_time)} s")
     
     def set_trigger_level(self, channel: int, level: float) -> None:
         """
@@ -140,8 +141,9 @@ class CT53230A(InstrumentBase):
         
         Reference: INPut:LEVel command
         """
-        self.write(f"INP{channel}:LEV {level}")
-        self.logger.info(f"Channel {channel} trigger level set to {level} V")
+        cmd = f"INP{channel}:LEV {format_number(level)}"
+        self.write(cmd)
+        self.logger.info(f"Channel {channel} trigger level set to {format_number(level)} V")
     
     def set_coupling(self, channel: int, coupling: str = "AC") -> None:
         """
