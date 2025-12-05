@@ -234,7 +234,7 @@ class ExperimentRunner:
                 inst.set_voltage(cfg.channel, voltage, compliance)
         
         self._terminal_states[terminal] = voltage
-        self.logger.info(f"{terminal}: Set to {voltage}V (Icomp={compliance*1000:.1f}mA)")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): Set to {voltage}V (Icomp={compliance*1000:.1f}mA)")
     
     def set_terminal_current(self, terminal: str, current: float,
                             compliance: float = None) -> None:
@@ -267,7 +267,7 @@ class ExperimentRunner:
             inst.set_current(cfg.channel, current, compliance)
         
         self._terminal_states[terminal] = current
-        self.logger.info(f"{terminal}: Set to {current}A (Vcomp={compliance}V)")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): Set to {current}A (Vcomp={compliance}V)")
     
     def enable_gndu(self, terminal: str) -> None:
         """
@@ -284,7 +284,7 @@ class ExperimentRunner:
         inst = self._get_instrument(cfg.instrument)
         # GNDU is enabled by connecting it
         inst.enable_channels([cfg.channel])
-        self.logger.info(f"{terminal}: GNDU enabled")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): GNDU enabled")
     
     def set_pulse(self, terminal: str, vhigh: float, vlow: float,
                  width: str, period: str = "1US", count: int = 1) -> None:
@@ -313,7 +313,7 @@ class ExperimentRunner:
             count=count,
             channel=cfg.channel
         )
-        self.logger.info(f"{terminal}: Pulse {width} @ {vhigh}V, x{count}")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): Pulse {width} @ {vhigh}V, x{count}")
     
     def set_ppg_dc_mode(self, terminal: str, voltage: float) -> None:
         """
@@ -333,7 +333,7 @@ class ExperimentRunner:
         
         inst = self._get_instrument(cfg.instrument)
         inst.set_dc_output(cfg.channel, voltage)
-        self.logger.info(f"{terminal}: DC mode at {voltage}V (enabled, no trigger)")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): DC mode at {voltage}V (enabled, no trigger)")
     
     def measure_frequency(self, terminal: str, record: bool = True) -> float:
         """
@@ -353,7 +353,7 @@ class ExperimentRunner:
         
         inst = self._get_instrument(cfg.instrument)
         freq = inst.measure_frequency(cfg.channel, record=record)
-        self.logger.info(f"{terminal}: Frequency = {freq} Hz")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): Frequency = {freq} Hz")
         return freq
     
     def measure_terminal_current(self, terminal: str, 
@@ -396,7 +396,7 @@ class ExperimentRunner:
         if record:
             inst.record_measurement(f"{terminal}_Current", current, "A")
         
-        self.logger.info(f"{terminal}: Current = {current} A")
+        self.logger.info(f"{terminal} (CH{cfg.channel}): Current = {current} A")
         return current
     
     # ========================================================================

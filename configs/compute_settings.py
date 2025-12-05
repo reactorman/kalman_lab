@@ -31,57 +31,52 @@ VCC = 5.0       # VCC voltage in volts
 
 # KGAIN current values (applied to both KGAIN1 and KGAIN2 - they are linked)
 KGAIN_VALUES = [
-    1e-6,       # 1 µA
-    2e-6,       # 2 µA
-    5e-6,       # 5 µA
+    0e-9,       # 1 µA
+    10e-9,       # 2 µA
+    20e-9,       # 5 µA
 ]
 
 # TRIM current values (applied to both TRIM1 and TRIM2 - they are linked)
 TRIM_VALUES = [
-    1e-6,       # 1 µA
-    2e-6,       # 2 µA
+    10e-9,       # 1 µA
+    50e-9,       # 2 µA
 ]
 
 # X2 current values
 X2_VALUES = [
-    1e-6,       # 1 µA
+    10e-9,       # 1 µA
 ]
 
 # IREFP current values
 IREFP_VALUES = [
-    1e-6,       # 1 µA
+    100e-9,       # 1 µA
 ]
 
 # F11 current values
 F11_VALUES = [
-    1e-6,       # 1 µA
+    100e-9,       # 1 µA
 ]
 
 # F12 current values
 F12_VALUES = [
-    1e-6,       # 1 µA
+    10e-9,       # 1 µA
 ]
 
 # ============================================================================
-# 3. SYNCHRONOUS SWEEP CONFIGURATION
+# 3. X1 FIXED VALUES AND IMEAS SWEEP CONFIGURATION
 # ============================================================================
-# X1 and IMEAS are swept synchronously while measuring current on OUT1 and OUT2.
-# Both sweeps have the same number of points (use same step count).
+# X1 is set to fixed current values. For each X1 value, IMEAS sweeps from
+# (X1 - 20nA) to (X1 + 20nA) in steps of 5nA.
 # Units: Amps
 
-# X1 sweep configuration
-X1_SWEEP = {
-    "start": 0.0,       # Start current (A)
-    "stop": 10e-6,      # Stop current (A) - 10 µA
-    "step": 1e-6,       # Step size (A) - 1 µA
-}
-
-# IMEAS sweep configuration (synchronous with X1)
-IMEAS_SWEEP = {
-    "start": 0.0,       # Start current (A)
-    "stop": 10e-6,      # Stop current (A) - 10 µA
-    "step": 1e-6,       # Step size (A) - 1 µA
-}
+# X1 fixed current values (list of values to iterate through)
+X1_VALUES = [
+    20e-9,        
+    40e-9,       
+    60e-9,       
+    80e-9,      
+    100e-9,      
+]
 
 # ============================================================================
 # 4. PPG SETTINGS (DC Mode for ERASE_PROG)
@@ -124,9 +119,8 @@ def get_settings():
         "IREFP": IREFP_VALUES,
         "F11": F11_VALUES,
         "F12": F12_VALUES,
-        # Sync sweep
-        "X1_SWEEP": X1_SWEEP,
-        "IMEAS_SWEEP": IMEAS_SWEEP,
+        # X1 and IMEAS
+        "X1_VALUES": X1_VALUES,
         # PPG
         "PPG_ERASE_VOLTAGE": PPG_ERASE_VOLTAGE,
         "PPG_PROGRAM_VOLTAGE": PPG_PROGRAM_VOLTAGE,

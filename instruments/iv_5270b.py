@@ -235,6 +235,27 @@ class IV5270B(InstrumentBase):
         self.write(cmd)
         self.logger.info(f"CH{channel}: Sweep {format_number(start)}V to {format_number(stop)}V in {steps} steps")
     
+    def configure_current_sweep(self, channel: int, start: float, stop: float,
+                                steps: int, compliance: float = 2.0,
+                                mode: int = 1, i_range: int = 0) -> None:
+        """
+        Configure a current sweep.
+        
+        Args:
+            channel: SMU channel
+            start: Start current
+            stop: Stop current
+            steps: Number of steps
+            compliance: Voltage compliance
+            mode: Sweep mode (1=linear, 2=log, 3=linear 2-way, 4=log 2-way)
+            i_range: Current range (0=auto)
+        
+        Reference: WI command - WI channel, mode, range, start, stop, steps, Vcomp
+        """
+        cmd = f"WI {channel},{mode},{i_range},{format_number(start)},{format_number(stop)},{steps},{format_number(compliance)}"
+        self.write(cmd)
+        self.logger.info(f"CH{channel}: Current sweep {format_number(start)}A to {format_number(stop)}A in {steps} steps")
+    
     # =========================================================================
     # Linear Search (Constant Current Vt)
     # =========================================================================
