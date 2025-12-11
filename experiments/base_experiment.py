@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from instruments.base import (
     set_test_mode, get_test_mode, ensure_directories,
-    initialize_csv, TEST_COMMANDS_FILE, LOG_DIR, get_timing_tracker
+    initialize_csv, set_test_commands_file, get_test_commands_file, LOG_DIR, get_timing_tracker
 )
 from instruments import CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560
 from configs.resource_types import (
@@ -94,9 +94,16 @@ class ExperimentRunner:
         set_test_mode(test_mode)
         
         if test_mode:
+            # Set up experiment-specific test commands file
+            test_commands_file = os.path.join(
+                LOG_DIR,
+                f'{config.name}_commands_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+            )
+            set_test_commands_file(test_commands_file)
+            
             self.logger.info("=" * 60)
             self.logger.info("RUNNING IN TEST MODE - No hardware communication")
-            self.logger.info(f"Commands logged to: {TEST_COMMANDS_FILE}")
+            self.logger.info(f"Commands logged to: {get_test_commands_file()}")
             self.logger.info("=" * 60)
         
         # Initialize PyVISA (only when not in test mode)

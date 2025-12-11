@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from instruments.base import (
     set_test_mode, get_test_mode, ensure_directories, 
-    initialize_csv, TEST_COMMANDS_FILE, get_timing_tracker
+    initialize_csv, set_test_commands_file, get_test_commands_file, get_timing_tracker, LOG_DIR
 )
 from instruments import (
     CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560
@@ -450,9 +450,16 @@ def main():
     logger = logging.getLogger('main')
     
     if args.test:
+        # Set up test commands file for this script run
+        test_commands_file = os.path.join(
+            LOG_DIR,
+            f'instruments_commands_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        )
+        set_test_commands_file(test_commands_file)
+        
         logger.info("=" * 60)
         logger.info("RUNNING IN TEST MODE - No hardware communication")
-        logger.info(f"Commands will be logged to: {TEST_COMMANDS_FILE}")
+        logger.info(f"Commands will be logged to: {get_test_commands_file()}")
         logger.info("=" * 60)
     
     # Create instrument manager

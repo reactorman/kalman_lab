@@ -357,9 +357,9 @@ COMPUTE_SWEEP_PARAMETERS = {
 
 COMPUTE_SYNC_SWEEP_SOURCES = {
     "X1": {
-        "start": 0.0,      # Start current in Amps
-        "stop": 0.0,       # Stop current in Amps
-        "step": 0.0,       # Step current in Amps
+        "start": 20.0e-9,      # Start current in Amps
+        "stop": 80e-9,       # Stop current in Amps
+        "step": 5e-9,       # Step current in Amps
         "compliance": 2.0,  # Voltage compliance
         "description": "X1 sweep configuration"
     },

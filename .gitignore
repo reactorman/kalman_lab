@@ -35,6 +35,7 @@ eggs/
 
 # Logs
 *.log
+logs/
 
 # Windows
 desktop.ini

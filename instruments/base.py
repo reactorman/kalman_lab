@@ -78,8 +78,44 @@ _timing_tracker = TimingTracker()
 # Paths for logs and measurements
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
 MEASUREMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'measurements')
-TEST_COMMANDS_FILE = os.path.join(LOG_DIR, 'test_commands.txt')
 RESULTS_FILE = os.path.join(MEASUREMENTS_DIR, 'results.csv')
+
+# Global variable for current test commands file (set per experiment)
+_current_test_commands_file: Optional[str] = None
+
+
+def get_test_commands_file() -> str:
+    """
+    Get the current test commands file path.
+    
+    Returns:
+        Path to the test commands file for the current experiment.
+        Returns None if not set (should not happen in test mode).
+    """
+    global _current_test_commands_file
+    if _current_test_commands_file is None:
+        # Fallback to old default if not set (for backwards compatibility)
+        return os.path.join(LOG_DIR, 'test_commands.txt')
+    return _current_test_commands_file
+
+
+def set_test_commands_file(file_path: str) -> None:
+    """
+    Set the test commands file path for the current experiment.
+    
+    This should be called at the start of each experiment in test mode.
+    Any existing file at this path will be overwritten.
+    
+    Args:
+        file_path: Path to the test commands file for this experiment
+    """
+    global _current_test_commands_file
+    _current_test_commands_file = file_path
+    # Ensure the directory exists
+    ensure_directories()
+    # Remove old file if it exists (start fresh for each experiment)
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 
 def set_test_mode(enabled: bool) -> None:
@@ -263,7 +299,7 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, command)
             
             # Log command to test file with improved formatting
-            with open(TEST_COMMANDS_FILE, 'a') as f:
+            with open(get_test_commands_file(), 'a') as f:
                 f.write(f"{timestamp} | {self.name} | WRITE | {command}\n")
             self.logger.debug(f"TEST_MODE WRITE: {command}")
         else:
@@ -290,7 +326,7 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, "READ")
             
             response = "TEST_MODE_RESPONSE"
-            with open(TEST_COMMANDS_FILE, 'a') as f:
+            with open(get_test_commands_file(), 'a') as f:
                 f.write(f"{timestamp} | {self.name} | READ | {response}\n")
             self.logger.debug(f"TEST_MODE READ: {response}")
             return response
@@ -323,7 +359,7 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, command)
             
             response = "TEST_MODE_RESPONSE"
-            with open(TEST_COMMANDS_FILE, 'a') as f:
+            with open(get_test_commands_file(), 'a') as f:
                 f.write(f"{timestamp} | {self.name} | QUERY | {command} -> {response}\n")
             self.logger.debug(f"TEST_MODE QUERY: {command} -> {response}")
             return response
