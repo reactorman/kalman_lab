@@ -14,7 +14,7 @@ import csv
 import logging
 import time
 from datetime import datetime
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, List
 
 # Global TEST_MODE flag - when True, commands are logged instead of sent
 TEST_MODE = False
@@ -389,6 +389,98 @@ class InstrumentBase:
         # Default implementation uses SCPI standard
         # Subclasses may override with instrument-specific commands
         return self.query("SYST:ERR?")
+    
+    def _is_no_error(self, response: str) -> bool:
+        """
+        Check if an error response indicates "no error".
+        
+        Handles different instrument error formats:
+        - IV5270B: "0: No error"
+        - IV4156B: "0" or "0,No error" (comma-separated)
+        - SCPI instruments: '0,"No error"' format
+        
+        Args:
+            response: Error query response string
+            
+        Returns:
+            True if response indicates no error, False otherwise
+        """
+        response = response.strip()
+        
+        # Check for IV5270B format: "0: No error"
+        if response.startswith("0:"):
+            return True
+        
+        # Check for SCPI format: '0,"No error"' or '0,"No error"'
+        if response.startswith("0,"):
+            # Extract the error code (first part before comma)
+            parts = response.split(",", 1)
+            if len(parts) > 0:
+                try:
+                    error_code = int(parts[0].strip())
+                    return error_code == 0
+                except ValueError:
+                    pass
+        
+        # Check for IV4156B format: "0" or just "0" at start
+        try:
+            error_code = int(response.split(",")[0].strip())
+            return error_code == 0
+        except (ValueError, IndexError):
+            pass
+        
+        # If we can't parse it, assume it's an error
+        return False
+    
+    def check_all_errors(self, max_tries: int = 10) -> List[str]:
+        """
+        Check all errors in the instrument error queue.
+        
+        Queries the error queue repeatedly until "no error" is returned,
+        collecting all errors/warnings found. Instruments typically return
+        one error per query, so multiple queries are needed to clear the queue.
+        
+        Args:
+            max_tries: Maximum number of error queries (default: 10)
+            
+        Returns:
+            List of all error/warning messages found. Empty list if no errors.
+            In TEST_MODE, always returns empty list.
+        """
+        if TEST_MODE:
+            # In test mode, no real errors exist
+            return []
+        
+        errors = []
+        
+        for i in range(max_tries):
+            try:
+                response = self.error_query()
+                
+                # Check if this is a "no error" response
+                if self._is_no_error(response):
+                    # No more errors, we're done
+                    break
+                else:
+                    # This is an error or warning
+                    errors.append(response)
+                    self.logger.debug(f"{self.name} error query {i+1}: {response}")
+            except Exception as e:
+                # If error query itself fails, log it and continue
+                error_msg = f"Error query failed: {e}"
+                errors.append(error_msg)
+                self.logger.warning(f"{self.name} {error_msg}")
+                # Don't break on query failure - try to get more errors
+                # But limit iterations to avoid infinite loops
+                if i >= max_tries - 1:
+                    break
+        
+        if errors:
+            self.logger.warning(f"{self.name} found {len(errors)} error(s)/warning(s)")
+        else:
+            self.logger.debug(f"{self.name} error queue is clean")
+        
+        return errors
     
     def record_measurement(self, function: str, value: Any, units: str) -> None:
         """

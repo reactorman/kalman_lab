@@ -202,6 +202,10 @@ class ComputeExperiment(ExperimentRunner):
         
         self._channels_initialized = True
         self.logger.info("All channels initialized")
+        
+        # Check for errors after channel initialization
+        errors = self.check_all_instrument_errors()
+        self.report_and_exit_on_errors(errors)
     
     # ========================================================================
     # Step 2: Voltage Supply Setup
@@ -587,6 +591,12 @@ class ComputeExperiment(ExperimentRunner):
                         "sweep_results": sweep_results,
                     }
                     results["measurements"][ppg_state].append(measurement)
+                    
+                    # Check for errors after first measurement (first set of conditions)
+                    if measurement_num == 1:
+                        self.logger.info("Checking for errors after first measurement...")
+                        errors = self.check_all_instrument_errors()
+                        self.report_and_exit_on_errors(errors)
         
         self.logger.info("=" * 60)
         self.logger.info("Compute experiment complete")

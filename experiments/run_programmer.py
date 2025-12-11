@@ -171,6 +171,10 @@ class ProgrammerExperiment(ExperimentRunner):
         self.logger.info("=" * 60)
         self.logger.info("INITIALIZATION COMPLETE - Ready for measurements")
         self.logger.info("=" * 60)
+        
+        # Check for errors after initialization
+        errors = self.check_all_instrument_errors()
+        self.report_and_exit_on_errors(errors)
     
     def _configure_ppg(self) -> None:
         """
@@ -460,6 +464,12 @@ class ProgrammerExperiment(ExperimentRunner):
                 
                 # Final ICELLMEAS measurement
                 icellmeas_final = self.measure_icellmeas_current("FINAL")
+                
+                # Check for errors after first measurement (first set of conditions)
+                if measurement_num == 1:
+                    self.logger.info("Checking for errors after first measurement...")
+                    errors = self.check_all_instrument_errors()
+                    self.report_and_exit_on_errors(errors)
                 
                 # Record measurement
                 measurement = {

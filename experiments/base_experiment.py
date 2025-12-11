@@ -195,6 +195,73 @@ class ExperimentRunner:
                 self.logger.error(f"Failed to close {inst_type.value}: {e}")
         self._instruments.clear()
     
+    def check_all_instrument_errors(self) -> Dict[str, List[str]]:
+        """
+        Check all errors from all initialized instruments.
+        
+        Queries each instrument's error queue until "no error" is returned,
+        collecting all errors/warnings from all instruments.
+        
+        Returns:
+            Dictionary mapping instrument names to lists of error messages.
+            Empty dict if no errors found.
+        """
+        self.logger.info("Checking all instruments for errors...")
+        all_errors = {}
+        
+        for inst_type, inst in self._instruments.items():
+            try:
+                errors = inst.check_all_errors(max_tries=10)
+                if errors:
+                    all_errors[inst_type.value] = errors
+            except Exception as e:
+                # If error checking itself fails, record it as an error
+                error_msg = f"Error checking failed: {e}"
+                all_errors[inst_type.value] = [error_msg]
+                self.logger.error(f"Failed to check errors on {inst_type.value}: {e}")
+        
+        if all_errors:
+            self.logger.warning(f"Found errors/warnings on {len(all_errors)} instrument(s)")
+        else:
+            self.logger.info("All instruments error-free")
+        
+        return all_errors
+    
+    def report_and_exit_on_errors(self, errors: Dict[str, List[str]]) -> None:
+        """
+        Report all errors/warnings and exit if any are found.
+        
+        Errors and warnings are treated as fatal conditions that warrant
+        stopping the test. All collected data is retained when the test stops.
+        
+        Args:
+            errors: Dictionary mapping instrument names to lists of error messages
+            
+        Raises:
+            SystemExit: If any errors are found, to stop the test immediately
+        """
+        if not errors:
+            return
+        
+        # Log all errors with clear formatting
+        self.logger.error("=" * 60)
+        self.logger.error("ERROR: Instrument errors/warnings detected - test terminated")
+        self.logger.error("=" * 60)
+        
+        for instrument_name, error_list in errors.items():
+            self.logger.error(f"{instrument_name}:")
+            for i, error_msg in enumerate(error_list, 1):
+                self.logger.error(f"  - Error {i}: {error_msg}")
+        
+        self.logger.error("=" * 60)
+        self.logger.error("Test stopped due to instrument errors/warnings.")
+        self.logger.error("All data collected so far has been retained.")
+        self.logger.error("=" * 60)
+        
+        # Raise SystemExit to stop the test
+        # Data retention is automatic - Python exception handling preserves state
+        raise SystemExit("Instrument errors detected - test terminated")
+    
     # ========================================================================
     # Terminal-Based Operations
     # ========================================================================
@@ -415,6 +482,11 @@ class ExperimentRunner:
         idn = self.idn_all()
         for name, response in idn.items():
             self.logger.info(f"  {name}: {response.strip()}")
+        
+        # Check for errors after initialization and reset
+        # This ensures clean state at test start
+        errors = self.check_all_instrument_errors()
+        self.report_and_exit_on_errors(errors)
     
     def shutdown(self) -> None:
         """Standard experiment shutdown sequence."""
