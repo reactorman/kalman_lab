@@ -193,12 +193,8 @@ class ComputeExperiment(ExperimentRunner):
         ]
         self.logger.info(f"4156B: Enabled channels: {', '.join(channel_info)}")
         
-        # Set measurement mode for spot measurements on 5270B
-        # Mode 1 = spot measurement, we'll measure OUT1 and OUT2
-        out1_cfg = self.get_terminal_config("OUT1")
-        out2_cfg = self.get_terminal_config("OUT2")
-        iv5270b.set_measurement_mode(1, [out1_cfg.channel, out2_cfg.channel])
-        self.logger.info(f"5270B: Measurement mode 1 (spot) on OUT1 (CH{out1_cfg.channel}) and OUT2 (CH{out2_cfg.channel})")
+        # Note: Measurement mode (MM) is set right before each measurement, not during initialization
+        # This avoids redundant MM commands that are not used until measurements begin
         
         self._channels_initialized = True
         self.logger.info("All channels initialized")

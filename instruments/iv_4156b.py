@@ -129,21 +129,30 @@ class IV4156B(InstrumentBase):
         """
         Set a DC current on a channel (force current mode).
         
+        Note: The current value is negated before sending to the instrument (DI command).
+        Positive current in code means current flowing into the instrument, but the
+        instrument expects negative values for current sources.
+        
         Args:
             channel: SMU channel number (1-4)
-            current: Current to force in amps
+            current: Current to force in amps (positive = into instrument)
             compliance: Voltage compliance in volts (default: 100V)
             i_range: Current range (0=auto, 11-20 for fixed ranges)
         
         Reference: DI command - DI channel, range, current, compliance
         """
-        cmd = f"DI {channel},{i_range},{format_number(current)},{format_number(compliance)}"
+        # Negate current for instrument (positive in code = negative to instrument)
+        negated_current = -current
+        cmd = f"DI {channel},{i_range},{format_number(negated_current)},{format_number(compliance)}"
         self.write(cmd)
-        self.logger.debug(f"CH{channel}: DI={format_number(current)}A, Vcomp={format_number(compliance)}V")
+        self.logger.debug(f"CH{channel}: DI={format_number(current)}A (sent as {format_number(negated_current)}A), Vcomp={format_number(compliance)}V")
     
     def set_vsu_voltage(self, vsu_channel: int, voltage: float) -> None:
         """
         Set voltage on a VSU (Voltage Source Unit) channel.
+        
+        Note: Channel must already be enabled via enable_channels() before calling this.
+        This method does NOT call CN to avoid duplication when channels are pre-enabled.
         
         Args:
             vsu_channel: VSU channel (21 or 22)
@@ -151,7 +160,6 @@ class IV4156B(InstrumentBase):
         
         Reference: DV command for VSU
         """
-        self.write(f"CN {vsu_channel}")
         cmd = f"DV {vsu_channel},0,{format_number(voltage)}"
         self.write(cmd)
         self.logger.debug(f"VSU{vsu_channel}: {format_number(voltage)}V")
@@ -225,19 +233,26 @@ class IV4156B(InstrumentBase):
         """
         Configure a current sweep on a channel.
         
+        Note: Current values are negated before sending to the instrument (WI command).
+        Positive current in code means current flowing into the instrument, but the
+        instrument expects negative values for current sources.
+        
         Args:
             channel: SMU channel (1-4)
-            start: Start current in amps
-            stop: Stop current in amps
+            start: Start current in amps (positive = into instrument)
+            stop: Stop current in amps (positive = into instrument)
             step: Step current in amps
             compliance: Voltage compliance in volts
             i_range: Current range
         
         Reference: WI command
         """
-        cmd = f"WI {channel},1,{i_range},{format_number(start)},{format_number(stop)},{format_number(step)},{format_number(compliance)}"
+        # Negate start and stop for instrument (positive in code = negative to instrument)
+        negated_start = -start
+        negated_stop = -stop
+        cmd = f"WI {channel},1,{i_range},{format_number(negated_start)},{format_number(negated_stop)},{format_number(step)},{format_number(compliance)}"
         self.write(cmd)
-        self.logger.info(f"CH{channel}: Current sweep {start}A to {stop}A")
+        self.logger.info(f"CH{channel}: Current sweep {start}A to {stop}A (sent as {format_number(negated_start)}A to {format_number(negated_stop)}A)")
     
     # =========================================================================
     # Linear Search (Constant Current Vt Measurement)

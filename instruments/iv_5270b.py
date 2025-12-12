@@ -130,17 +130,23 @@ class IV5270B(InstrumentBase):
         """
         Set a DC current on a channel.
         
+        Note: The current value is negated before sending to the instrument (DI command).
+        Positive current in code means current flowing into the instrument, but the
+        instrument expects negative values for current sources.
+        
         Args:
             channel: SMU channel number
-            current: Current to force in amps
+            current: Current to force in amps (positive = into instrument)
             compliance: Voltage compliance in volts
             i_range: Current range (0=auto)
         
         Reference: DI command - DI channel, range, current, compliance
         """
-        cmd = f"DI {channel},{i_range},{format_number(current)},{format_number(compliance)}"
+        # Negate current for instrument (positive in code = negative to instrument)
+        negated_current = -current
+        cmd = f"DI {channel},{i_range},{format_number(negated_current)},{format_number(compliance)}"
         self.write(cmd)
-        self.logger.debug(f"CH{channel}: DI={format_number(current)}A, Vcomp={format_number(compliance)}V")
+        self.logger.debug(f"CH{channel}: DI={format_number(current)}A (sent as {format_number(negated_current)}A), Vcomp={format_number(compliance)}V")
     
     def set_series_resistor(self, channel: int, enabled: bool) -> None:
         """
@@ -241,10 +247,14 @@ class IV5270B(InstrumentBase):
         """
         Configure a current sweep.
         
+        Note: Current values are negated before sending to the instrument (WI command).
+        Positive current in code means current flowing into the instrument, but the
+        instrument expects negative values for current sources.
+        
         Args:
             channel: SMU channel
-            start: Start current
-            stop: Stop current
+            start: Start current (positive = into instrument)
+            stop: Stop current (positive = into instrument)
             steps: Number of steps
             compliance: Voltage compliance
             mode: Sweep mode (1=linear, 2=log, 3=linear 2-way, 4=log 2-way)
@@ -252,9 +262,12 @@ class IV5270B(InstrumentBase):
         
         Reference: WI command - WI channel, mode, range, start, stop, steps, Vcomp
         """
-        cmd = f"WI {channel},{mode},{i_range},{format_number(start)},{format_number(stop)},{steps},{format_number(compliance)}"
+        # Negate start and stop for instrument (positive in code = negative to instrument)
+        negated_start = -start
+        negated_stop = -stop
+        cmd = f"WI {channel},{mode},{i_range},{format_number(negated_start)},{format_number(negated_stop)},{steps},{format_number(compliance)}"
         self.write(cmd)
-        self.logger.info(f"CH{channel}: Current sweep {format_number(start)}A to {format_number(stop)}A in {steps} steps")
+        self.logger.info(f"CH{channel}: Current sweep {format_number(start)}A to {format_number(stop)}A (sent as {format_number(negated_start)}A to {format_number(negated_stop)}A) in {steps} steps")
     
     # =========================================================================
     # Linear Search (Constant Current Vt)
@@ -496,8 +509,8 @@ class IV5270B(InstrumentBase):
                                                  vg_step, 0.1)
             self.set_binary_search_abort(0, 2, 3)
         
-        # Set fixed biases
-        self.set_bias([0, None, 0, vd], [None, None, None, None], [2])
+        # Set fixed biases (skip CN since channels are already enabled)
+        self.set_bias([0, None, 0, vd], [None, None, None, None], [2], skip_cn=True)
         
         self.execute_measurement()
         data = self.read_data()
@@ -517,7 +530,7 @@ class IV5270B(InstrumentBase):
     
     def set_bias(self, voltages: List[Optional[float]], 
                  currents: List[Optional[float]],
-                 others: List[int]) -> None:
+                 others: List[int], skip_cn: bool = False) -> None:
         """
         Set bias conditions on multiple channels.
         
@@ -525,6 +538,7 @@ class IV5270B(InstrumentBase):
             voltages: List of voltages (None to skip)
             currents: List of currents (None to skip)
             others: List of channels in sweep/search mode
+            skip_cn: If True, skip CN command (channels already enabled)
         """
         all_ch = list(others)
         all_force = []
@@ -537,10 +551,13 @@ class IV5270B(InstrumentBase):
         for ch, current in enumerate(currents, start=1):
             if current is not None:
                 all_ch.append(ch)
-                all_force.append(f"DI {ch},0,{format_number(current)},{format_number(1.0)}")
+                # Negate current for instrument (positive in code = negative to instrument)
+                negated_current = -current
+                all_force.append(f"DI {ch},0,{format_number(negated_current)},{format_number(1.0)}")
         
-        channels = ",".join(str(i) for i in all_ch)
-        self.write(f"CN {channels}")
+        if not skip_cn:
+            channels = ",".join(str(i) for i in all_ch)
+            self.write(f"CN {channels}")
         
         for cmd in all_force:
             self.write(cmd)
