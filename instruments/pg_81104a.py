@@ -485,13 +485,13 @@ class PG81104A(InstrumentBase):
         self.set_voltage_low(channel, 0.0)
         
         # Set HIGH voltage
-        # If voltage is 0V, set HIGH to a small value to avoid HIGH=LOW (not supported)
+        # If voltage is 0V, set HIGH to 1V to avoid HIGH=LOW (not supported)
         if voltage == 0.0:
-            high_voltage = 0.001  # Small positive value
+            high_voltage = 1.0  # Use 1V instead of 0.001V for shutdown/idle
             # Use NORM polarity so idle state is LOW (0V)
             self.set_polarity(channel, "NORM")
             self.set_voltage_high(channel, high_voltage)
-            polarity_info = "NORM (idle=LOW=0V)"
+            polarity_info = "NORM (idle=LOW=0V, HIGH=1V)"
         else:
             high_voltage = voltage
             # Use INV polarity so idle state is HIGH (desired voltage)
