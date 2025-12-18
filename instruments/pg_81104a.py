@@ -55,7 +55,7 @@ class PG81104A(InstrumentBase):
         # Configure output impedance: 50 ohm source into 1 Megohm load
         self._configure_output_impedance()
         
-        self.logger.info("PG81104A reset (50 ohm → 1 MOhm, display off)")
+        self.logger.info("PG81104A reset (50 ohm -> 1 MOhm, display off)")
     
     def _configure_output_impedance(self) -> None:
         """
@@ -68,9 +68,9 @@ class PG81104A(InstrumentBase):
         """
         # Set expected load impedance to 1 Megohm (high impedance)
         # This tells the generator not to double voltages for 50 ohm matching
-        self.write(":OUTP1:IMP:EXT 1MOHM")  # Channel 1: expect 1 MOhm load
-        self.write(":OUTP2:IMP:EXT 1MOHM")  # Channel 2: expect 1 MOhm load
-        self.logger.debug("Output impedance: 50 ohm source → 1 MOhm load")
+        self.write(":OUTP1:IMP:EXT 1E6 OHM")  # Channel 1: expect 1 MOhm load
+        self.write(":OUTP2:IMP:EXT 1E6 OHM")  # Channel 2: expect 1 MOhm load
+        self.logger.debug("Output impedance: 50 ohm source -> 1 MOhm load")
     
     def error_query(self) -> str:
         """
@@ -466,23 +466,46 @@ class PG81104A(InstrumentBase):
         Set a channel to output a constant DC voltage.
         
         This configures the channel to output a steady DC level without
-        any pulse generation or triggering. Both high and low voltages
-        are set to the same value to produce DC output.
+        any pulse generation or triggering. The channel is configured to
+        output the desired voltage level by default (idle state).
         
         Args:
             channel: Channel number (1 or 2)
             voltage: DC voltage level in volts
         
         Note:
-            The output is enabled but no triggering occurs.
-            To disable, call disable_output() or idle().
+            - LOW voltage is always set to 0V (instrument requirement)
+            - HIGH voltage is set to the desired voltage (or 0.001V if voltage is 0V)
+            - For voltage > 0: Polarity is INV so idle state is HIGH
+            - For voltage = 0: Polarity is NORM so idle state is LOW
+            - Output is enabled but never triggered
+            - To disable, call disable_output() or idle().
         """
-        # Set both high and low to same value = DC output
-        self.set_voltage_high(channel, voltage)
-        self.set_voltage_low(channel, voltage)
+        # Set LOW to 0V (always)
+        self.set_voltage_low(channel, 0.0)
         
-        # Enable output (no trigger needed for DC)
+        # Set HIGH voltage
+        # If voltage is 0V, set HIGH to a small value to avoid HIGH=LOW (not supported)
+        if voltage == 0.0:
+            high_voltage = 0.001  # Small positive value
+            # Use NORM polarity so idle state is LOW (0V)
+            self.set_polarity(channel, "NORM")
+            self.set_voltage_high(channel, high_voltage)
+            polarity_info = "NORM (idle=LOW=0V)"
+        else:
+            high_voltage = voltage
+            # Use INV polarity so idle state is HIGH (desired voltage)
+            self.set_polarity(channel, "INV")
+            self.set_voltage_high(channel, voltage)
+            polarity_info = f"INV (idle=HIGH={voltage}V)"
+        
+        # Configure for manual arm (never triggered)
+        self.set_arm_source("MAN")
+        self.set_trigger_count(1)
+        self.set_trigger_source("IMM")
+        
+        # Enable output (idle state outputs desired voltage, never triggered)
         self.enable_output(channel)
         
-        self.logger.info(f"CH{channel}: DC output at {voltage}V (enabled, no trigger)")
+        self.logger.info(f"CH{channel}: DC output at {voltage}V (LOW=0V, HIGH={high_voltage}V, {polarity_info}, enabled, no trigger)")
 

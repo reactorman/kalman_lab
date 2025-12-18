@@ -283,7 +283,7 @@ class ProgrammerExperiment(ExperimentRunner):
         counter.set_slope(cfg["start_channel"], "NEG")
         counter.set_slope(cfg["stop_channel"], "NEG")
         
-        self.logger.info(f"Counter: Time interval CH{cfg['start_channel']} → CH{cfg['stop_channel']}")
+        self.logger.info(f"Counter: Time interval CH{cfg['start_channel']} -> CH{cfg['stop_channel']}")
         self.logger.info(f"Threshold: {threshold}V (VCC/2), falling edge trigger")
     
     # ========================================================================

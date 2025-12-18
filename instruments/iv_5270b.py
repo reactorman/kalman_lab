@@ -42,8 +42,17 @@ class IV5270B(InstrumentBase):
     def reset(self) -> None:
         """Reset the instrument to default state."""
         self.write("*RST")
-        self.write("*CLS")
+        # Note: *CLS is not supported by the 5270B
         self.logger.info("IV5270B reset to default state")
+    
+    def clear_status(self) -> None:
+        """
+        Clear the instrument status registers.
+        
+        Note: *CLS is not supported by the 5270B, so this method does nothing.
+        """
+        # 5270B does not support *CLS command
+        pass
     
     def error_query(self) -> str:
         """
@@ -73,14 +82,23 @@ class IV5270B(InstrumentBase):
         """
         Enable specified SMU channels.
         
+        Note: Channel 0 (GNDU) is automatically enabled and should not be
+        included in the CN command. It will be filtered out if present.
+        
         Args:
             channels: List of channel numbers (1-8 depending on configuration)
         
         Reference: CN command
         """
-        ch_str = ",".join(str(ch) for ch in channels)
+        # Filter out channel 0 (GNDU is automatically enabled)
+        filtered_channels = [ch for ch in channels if ch != 0]
+        if not filtered_channels:
+            self.logger.warning("No channels to enable (channel 0 was filtered out)")
+            return
+        
+        ch_str = ",".join(str(ch) for ch in filtered_channels)
         self.write(f"CN {ch_str}")
-        self.logger.info(f"Enabled channels: {channels}")
+        self.logger.info(f"Enabled channels: {filtered_channels} (channel 0 is always enabled)")
     
     def disable_channels(self, channels: List[int] = None) -> None:
         """
@@ -556,8 +574,11 @@ class IV5270B(InstrumentBase):
                 all_force.append(f"DI {ch},0,{format_number(negated_current)},{format_number(1.0)}")
         
         if not skip_cn:
-            channels = ",".join(str(i) for i in all_ch)
-            self.write(f"CN {channels}")
+            # Filter out channel 0 (GNDU is automatically enabled)
+            filtered_channels = [ch for ch in all_ch if ch != 0]
+            if filtered_channels:
+                channels = ",".join(str(i) for i in filtered_channels)
+                self.write(f"CN {channels}")
         
         for cmd in all_force:
             self.write(cmd)

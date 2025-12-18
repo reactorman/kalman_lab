@@ -176,7 +176,8 @@ class ComputeExperiment(ExperimentRunner):
         iv4156b = self._get_instrument(InstrumentType.IV4156B)
         
         # Enable all 5270B channels used in this experiment
-        # Channels: 0 (VSS/GNDU), 1 (OUT1), 2 (OUT2), 3 (X1), 4 (IMEAS), 5 (TRIM1), 6 (TRIM2), 7 (F11), 8 (F12)
+        # Channels: 0 (VSS/GNDU - automatically enabled), 1 (OUT1), 2 (OUT2), 3 (X1), 4 (IMEAS), 5 (TRIM1), 6 (TRIM2), 7 (F11), 8 (F12)
+        # Note: Channel 0 is automatically enabled and will be filtered out from CN command
         iv5270b.enable_channels([0, 1, 2, 3, 4, 5, 6, 7, 8])
         channel_info = [
             f"CH0 (VSS/GNDU)", f"CH1 (OUT1)", f"CH2 (OUT2)", f"CH3 (X1)", 

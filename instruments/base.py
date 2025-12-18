@@ -83,6 +83,9 @@ RESULTS_FILE = os.path.join(MEASUREMENTS_DIR, 'results.csv')
 # Global variable for current test commands file (set per experiment)
 _current_test_commands_file: Optional[str] = None
 
+# Global variable for current instrument command log file (set per experiment)
+_current_instrument_command_log: Optional[str] = None
+
 
 def get_test_commands_file() -> str:
     """
@@ -116,6 +119,42 @@ def set_test_commands_file(file_path: str) -> None:
     # Remove old file if it exists (start fresh for each experiment)
     if os.path.exists(file_path):
         os.remove(file_path)
+
+
+def get_instrument_command_log() -> Optional[str]:
+    """
+    Get the current instrument command log file path.
+    
+    Returns:
+        Path to the instrument command log file for the current experiment.
+        Returns None if not set.
+    """
+    global _current_instrument_command_log
+    return _current_instrument_command_log
+
+
+def set_instrument_command_log(file_path: str) -> None:
+    """
+    Set the instrument command log file path for the current experiment.
+    
+    This should be called at the start of each experiment.
+    Any existing file at this path will be overwritten.
+    
+    Args:
+        file_path: Path to the instrument command log file for this experiment
+    """
+    global _current_instrument_command_log
+    _current_instrument_command_log = file_path
+    # Ensure the directory exists
+    ensure_directories()
+    # Remove old file if it exists (start fresh for each experiment)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    # Write header
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(f"# Instrument Command Log\n")
+        f.write(f"# Format: [timestamp] [instrument] [command]\n")
+        f.write(f"# Errors are marked with [ERROR] prefix\n\n")
 
 
 def set_test_mode(enabled: bool) -> None:
@@ -263,6 +302,8 @@ class InstrumentBase:
         self.timeout = timeout
         self.resource = None
         self._rm = resource_manager
+        self._last_command: Optional[str] = None  # Track last command sent to instrument
+        self._last_non_error_command: Optional[str] = None  # Track last command that wasn't an error query
         
         # Set up logging
         self.logger = logging.getLogger(f'instruments.{name}')
@@ -283,6 +324,56 @@ class InstrumentBase:
         else:
             self.logger.info(f"TEST_MODE: {name} initialized (no hardware connection)")
     
+    def _is_error_query(self, command: str) -> bool:
+        """
+        Check if a command is an error query command.
+        
+        Args:
+            command: Command string to check
+            
+        Returns:
+            True if the command is an error query, False otherwise
+        """
+        cmd_upper = command.strip().upper()
+        # Check for common error query patterns (exact match or ends with)
+        error_patterns = ["SYST:ERR?", "ERR?", ":SYST:ERR?"]
+        return any(cmd_upper == pattern or cmd_upper.endswith(pattern) for pattern in error_patterns)
+    
+    def _log_command(self, command: str, command_type: str = "WRITE") -> None:
+        """
+        Log a command to the instrument command log file.
+        
+        Args:
+            command: Command string
+            command_type: Type of command (WRITE, QUERY, READ)
+        """
+        log_file = get_instrument_command_log()
+        if log_file:
+            try:
+                timestamp = datetime.now().isoformat()
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"[{timestamp}] {self.name} {command_type}: {command}\n")
+            except Exception as e:
+                # Don't fail if logging fails
+                self.logger.debug(f"Failed to write to command log: {e}")
+    
+    def _log_error(self, error_msg: str) -> None:
+        """
+        Log an error to the instrument command log file.
+        
+        Args:
+            error_msg: Error message to log
+        """
+        log_file = get_instrument_command_log()
+        if log_file:
+            try:
+                timestamp = datetime.now().isoformat()
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"[{timestamp}] {self.name} [ERROR]: {error_msg}\n")
+            except Exception as e:
+                # Don't fail if logging fails
+                self.logger.debug(f"Failed to write error to command log: {e}")
+    
     def write(self, command: str) -> None:
         """
         Send a command to the instrument.
@@ -293,6 +384,14 @@ class InstrumentBase:
             command: GPIB/SCPI command string to send
         """
         timestamp = datetime.now().isoformat()
+        self._last_command = command  # Track last command
+        
+        # Track last non-error command (for error reporting)
+        if not self._is_error_query(command):
+            self._last_non_error_command = command
+        
+        # Log to instrument command log
+        self._log_command(command, "WRITE")
         
         if TEST_MODE:
             # Track command for timing estimation
@@ -352,6 +451,14 @@ class InstrumentBase:
             Response string from instrument
         """
         timestamp = datetime.now().isoformat()
+        self._last_command = command  # Track last command
+        
+        # Track last non-error command (for error reporting)
+        if not self._is_error_query(command):
+            self._last_non_error_command = command
+        
+        # Log to instrument command log
+        self._log_command(command, "QUERY")
         
         if TEST_MODE:
             # Track query as a command (1ms overhead for the write part)
@@ -501,6 +608,8 @@ class InstrumentBase:
                     # This is an error or warning
                     errors.append(response)
                     self.logger.debug(f"{self.name} error query {i+1}: {response}")
+                    # Log error to command log
+                    self._log_error(response)
             except Exception as e:
                 # If error query itself fails, log it and continue
                 error_msg = f"Error query failed: {e}"

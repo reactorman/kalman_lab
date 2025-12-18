@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from instruments.base import (
     set_test_mode, get_test_mode, ensure_directories,
-    initialize_csv, set_test_commands_file, get_test_commands_file, LOG_DIR, get_timing_tracker
+    initialize_csv, set_test_commands_file, get_test_commands_file, LOG_DIR, get_timing_tracker,
+    set_instrument_command_log
 )
 from instruments import CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560
 from configs.resource_types import (
@@ -75,20 +76,29 @@ class ExperimentRunner:
         
         # Set up logging
         ensure_directories()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = os.path.join(
             LOG_DIR,
-            f'{config.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+            f'{config.name}_{timestamp}.log'
         )
         
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.FileHandler(log_file, encoding='utf-8'),
                 logging.StreamHandler(sys.stdout)
             ]
         )
         self.logger = logging.getLogger(f'Experiment.{config.name}')
+        
+        # Set up instrument command log (for debugging)
+        instrument_command_log = os.path.join(
+            LOG_DIR,
+            f'{config.name}_instrument_commands_{timestamp}.txt'
+        )
+        set_instrument_command_log(instrument_command_log)
+        self.logger.info(f"Instrument command log: {instrument_command_log}")
         
         # Set global test mode
         set_test_mode(test_mode)
@@ -97,7 +107,7 @@ class ExperimentRunner:
             # Set up experiment-specific test commands file
             test_commands_file = os.path.join(
                 LOG_DIR,
-                f'{config.name}_commands_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+                f'{config.name}_commands_{timestamp}.txt'
             )
             set_test_commands_file(test_commands_file)
             
@@ -256,7 +266,19 @@ class ExperimentRunner:
         self.logger.error("=" * 60)
         
         for instrument_name, error_list in errors.items():
+            # Find the instrument instance to get the last command
+            inst = None
+            for inst_type, inst_obj in self._instruments.items():
+                if inst_type.value == instrument_name:
+                    inst = inst_obj
+                    break
+            
             self.logger.error(f"{instrument_name}:")
+            
+            # Print last non-error command if available (the command that likely caused the error)
+            if inst and hasattr(inst, '_last_non_error_command') and inst._last_non_error_command:
+                self.logger.error(f"  Last command (before error check): {inst._last_non_error_command}")
+            
             for i, error_msg in enumerate(error_list, 1):
                 self.logger.error(f"  - Error {i}: {error_msg}")
         
