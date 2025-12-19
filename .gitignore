@@ -63,4 +63,4 @@ secrets.json
 # Instrument control generated files
 logs/test_commands.txt
 logs/*.log
-measurements/results.csv
+measurements/

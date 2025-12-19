@@ -56,6 +56,8 @@ import os
 import argparse
 import logging
 import time
+import csv
+from datetime import datetime
 from typing import Dict, List, Any
 
 # Add parent directory to path for imports
@@ -112,6 +114,11 @@ class ProgrammerExperiment(ExperimentRunner):
         
         # PROG_IN values from config (10nA to 100nA)
         self.prog_in_values: List[float] = PROGRAMMER_PROG_IN_SWEEP["values"].copy()
+        
+        # CSV output file
+        self._csv_file = None
+        self._csv_writer = None
+        self._csv_initialized = False
     
     def set_irefp_values(self, values: List[float]) -> None:
         """
@@ -370,6 +377,99 @@ class ProgrammerExperiment(ExperimentRunner):
         return interval
     
     # ========================================================================
+    # CSV Output Management
+    # ========================================================================
+    
+    def _initialize_csv_output(self) -> None:
+        """
+        Initialize CSV output file with headers for all current and voltage sources.
+        
+        Creates a measurements folder if it doesn't exist and sets up the CSV file
+        with columns for all source values and measurement results.
+        """
+        if self._csv_initialized:
+            return
+        
+        # Create measurements folder if it doesn't exist
+        measurements_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "measurements"
+        )
+        os.makedirs(measurements_dir, exist_ok=True)
+        
+        # Generate CSV filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = os.path.join(
+            measurements_dir,
+            f"programmer_measurements_{timestamp}.csv"
+        )
+        
+        # Open CSV file for writing
+        self._csv_file = open(csv_filename, 'w', newline='', encoding='utf-8')
+        self._csv_writer = csv.writer(self._csv_file)
+        
+        # Define CSV headers
+        # Current sources: IREFP, PROG_IN
+        # Voltage sources: VDD, VCC, PROG_OUT, V_ICELLMEAS
+        # Measurements: ICELLMEAS_START, ICELLMEAS_FINAL, PULSE_WIDTH
+        headers = [
+            "IREFP", "PROG_IN",  # Current sources
+            "VDD", "VCC", "PROG_OUT", "V_ICELLMEAS",  # Voltage sources
+            "ICELLMEAS_START", "ICELLMEAS_FINAL", "PULSE_WIDTH"  # Measurements
+        ]
+        
+        # Write header row
+        self._csv_writer.writerow(headers)
+        self._csv_file.flush()
+        
+        self._csv_initialized = True
+        self.logger.info(f"CSV output initialized: {csv_filename}")
+    
+    def _write_measurement_row(self, irefp: float, prog_in: float,
+                               icellmeas_start: float, icellmeas_final: float,
+                               pulse_width: float) -> None:
+        """
+        Write a single measurement row to CSV.
+        
+        Args:
+            irefp: IREFP current value in Amps
+            prog_in: PROG_IN current value in Amps
+            icellmeas_start: ICELLMEAS current before pulse in Amps
+            icellmeas_final: ICELLMEAS current after pulse in Amps
+            pulse_width: Pulse width measured by counter in seconds
+        """
+        if not self._csv_initialized:
+            self._initialize_csv_output()
+        
+        # Calculate voltage values
+        prog_out_voltage = self.vcc
+        icellmeas_voltage = self.vdd / 2.0
+        
+        # Build row data
+        row = [
+            irefp,  # IREFP
+            prog_in,  # PROG_IN
+            self.vdd,  # VDD
+            self.vcc,  # VCC
+            prog_out_voltage,  # PROG_OUT
+            icellmeas_voltage,  # V_ICELLMEAS
+            icellmeas_start,  # ICELLMEAS_START
+            icellmeas_final,  # ICELLMEAS_FINAL
+            pulse_width,  # PULSE_WIDTH
+        ]
+        
+        self._csv_writer.writerow(row)
+        self._csv_file.flush()
+    
+    def _close_csv_output(self) -> None:
+        """Close CSV output file."""
+        if self._csv_file:
+            self._csv_file.close()
+            self._csv_file = None
+            self._csv_writer = None
+            self.logger.info("CSV output file closed")
+    
+    # ========================================================================
     # Main Experiment Execution
     # ========================================================================
     
@@ -429,6 +529,9 @@ class ProgrammerExperiment(ExperimentRunner):
         # ====================================================================
         # INITIALIZATION (once at start)
         # ====================================================================
+        # Initialize CSV output
+        self._initialize_csv_output()
+        
         self.initialize_all()
         
         # ====================================================================
@@ -465,6 +568,26 @@ class ProgrammerExperiment(ExperimentRunner):
                 # Final ICELLMEAS measurement
                 icellmeas_final = self.measure_icellmeas_current("FINAL")
                 
+                # Prepare values for CSV (use dummy data in test mode)
+                csv_icellmeas_start = icellmeas_start
+                csv_icellmeas_final = icellmeas_final
+                csv_pulse_width = pulse_width
+                
+                if self.test_mode:
+                    # Use dummy values for CSV measurements, but keep correct current settings
+                    csv_icellmeas_start = 1e-12  # Dummy measurement
+                    csv_icellmeas_final = 1e-12  # Dummy measurement
+                    csv_pulse_width = 1e-6  # Dummy pulse width (1 µs)
+                
+                # Write to CSV
+                self._write_measurement_row(
+                    irefp=irefp,
+                    prog_in=prog_in,
+                    icellmeas_start=csv_icellmeas_start,
+                    icellmeas_final=csv_icellmeas_final,
+                    pulse_width=csv_pulse_width
+                )
+                
                 # Check for errors after first measurement (first set of conditions)
                 if measurement_num == 1:
                     self.logger.info("Checking for errors after first measurement...")
@@ -489,15 +612,21 @@ class ProgrammerExperiment(ExperimentRunner):
         self.logger.info(f"Total measurements: {measurement_num}")
         self.logger.info("=" * 60)
         
+        # Close CSV output
+        self._close_csv_output()
+        
         return results
     
     def shutdown(self) -> None:
         """
-        Override shutdown to ensure PPG is disabled first.
+        Override shutdown to ensure PPG is disabled first and CSV is closed.
         """
         self.logger.info("=" * 60)
         self.logger.info("Shutting down Programmer experiment")
         self.logger.info("=" * 60)
+        
+        # Close CSV output
+        self._close_csv_output()
         
         # Disable PPG output explicitly
         try:
