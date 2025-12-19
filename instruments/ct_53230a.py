@@ -65,7 +65,7 @@ class CT53230A(InstrumentBase):
         Configure the counter for frequency measurement.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             expected_freq: Expected frequency in Hz (for optimization)
             resolution: Measurement resolution in Hz
         
@@ -87,7 +87,7 @@ class CT53230A(InstrumentBase):
         Configure the counter for period measurement.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
         
         Reference: CONFigure:PERiod command
         """
@@ -113,7 +113,7 @@ class CT53230A(InstrumentBase):
         Configure the counter for totalize (event counting) mode.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
         
         Reference: CONFigure:TOTalize command
         """
@@ -138,7 +138,7 @@ class CT53230A(InstrumentBase):
         Set the trigger level for a channel.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             level: Trigger level in volts
         
         Reference: INPut:LEVel command
@@ -152,7 +152,7 @@ class CT53230A(InstrumentBase):
         Set the input coupling for a channel.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             coupling: "AC" or "DC"
         
         Reference: INPut:COUPling command
@@ -165,11 +165,11 @@ class CT53230A(InstrumentBase):
     
     def set_all_channels_ac_coupled(self) -> None:
         """
-        Set all input channels (1, 2, 3) to AC coupling.
+        Set all input channels (1, 2) to AC coupling.
         
         Reference: INPut:COUPling command
         """
-        for channel in [1, 2, 3]:
+        for channel in [1, 2]:
             self.write(f"INP{channel}:COUP AC")
         self.logger.info("All channels set to AC coupling")
     
@@ -178,7 +178,7 @@ class CT53230A(InstrumentBase):
         Set the input impedance for a channel.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             impedance: 50 or 1000000 (1 MOhm)
         
         Reference: INPut:IMPedance command
@@ -193,7 +193,7 @@ class CT53230A(InstrumentBase):
         Set the trigger slope (edge direction) for a channel.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             slope: "POS" (rising edge) or "NEG" (falling edge)
         
         Reference: INPut:SLOPe command
@@ -215,7 +215,7 @@ class CT53230A(InstrumentBase):
         Perform a frequency measurement.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             record: If True, record to CSV file
             
         Returns:
@@ -241,7 +241,7 @@ class CT53230A(InstrumentBase):
         Perform a period measurement.
         
         Args:
-            channel: Input channel (1, 2, or 3)
+            channel: Input channel (1 or 2)
             record: If True, record to CSV file
             
         Returns:
