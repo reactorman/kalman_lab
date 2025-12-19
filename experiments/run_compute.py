@@ -332,6 +332,7 @@ class ComputeExperiment(ExperimentRunner):
         
         # Read all sweep data
         data = inst.read_data()
+        print(f"Raw instrument data after XE: {data}")  # Print raw data string
         
         # Parse sweep data
         # The data format for sweep measurements is typically comma-separated values
