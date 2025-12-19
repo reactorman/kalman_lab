@@ -82,9 +82,11 @@ RESULTS_FILE = os.path.join(MEASUREMENTS_DIR, 'results.csv')
 
 # Global variable for current test commands file (set per experiment)
 _current_test_commands_file: Optional[str] = None
+_current_test_commands_file_latest: Optional[str] = None
 
 # Global variable for current instrument command log file (set per experiment)
 _current_instrument_command_log: Optional[str] = None
+_current_instrument_command_log_latest: Optional[str] = None
 
 
 def get_test_commands_file() -> str:
@@ -102,7 +104,7 @@ def get_test_commands_file() -> str:
     return _current_test_commands_file
 
 
-def set_test_commands_file(file_path: str) -> None:
+def set_test_commands_file(file_path: str, latest_file_path: str = None) -> None:
     """
     Set the test commands file path for the current experiment.
     
@@ -111,14 +113,20 @@ def set_test_commands_file(file_path: str) -> None:
     
     Args:
         file_path: Path to the test commands file for this experiment
+        latest_file_path: Optional path to latest file (overwrites each run)
     """
-    global _current_test_commands_file
+    global _current_test_commands_file, _current_test_commands_file_latest
     _current_test_commands_file = file_path
+    _current_test_commands_file_latest = latest_file_path
     # Ensure the directory exists
     ensure_directories()
     # Remove old file if it exists (start fresh for each experiment)
     if os.path.exists(file_path):
         os.remove(file_path)
+    # Initialize latest file if provided
+    if latest_file_path:
+        if os.path.exists(latest_file_path):
+            os.remove(latest_file_path)
 
 
 def get_instrument_command_log() -> Optional[str]:
@@ -133,7 +141,7 @@ def get_instrument_command_log() -> Optional[str]:
     return _current_instrument_command_log
 
 
-def set_instrument_command_log(file_path: str) -> None:
+def set_instrument_command_log(file_path: str, latest_file_path: str = None) -> None:
     """
     Set the instrument command log file path for the current experiment.
     
@@ -142,19 +150,30 @@ def set_instrument_command_log(file_path: str) -> None:
     
     Args:
         file_path: Path to the instrument command log file for this experiment
+        latest_file_path: Optional path to latest file (overwrites each run)
     """
-    global _current_instrument_command_log
+    global _current_instrument_command_log, _current_instrument_command_log_latest
     _current_instrument_command_log = file_path
+    _current_instrument_command_log_latest = latest_file_path
     # Ensure the directory exists
     ensure_directories()
     # Remove old file if it exists (start fresh for each experiment)
     if os.path.exists(file_path):
         os.remove(file_path)
-    # Write header
+    # Write header to timestamped file
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(f"# Instrument Command Log\n")
         f.write(f"# Format: [timestamp] [instrument] [command]\n")
         f.write(f"# Errors are marked with [ERROR] prefix\n\n")
+    # Write header to latest file if provided
+    if latest_file_path:
+        if os.path.exists(latest_file_path):
+            os.remove(latest_file_path)
+        with open(latest_file_path, 'w', encoding='utf-8') as f:
+            f.write(f"# Instrument Command Log\n")
+            f.write(f"# Format: [timestamp] [instrument] [command]\n")
+            f.write(f"# Errors are marked with [ERROR] prefix\n")
+            f.write(f"# Latest run (overwrites each time)\n\n")
 
 
 def set_test_mode(enabled: bool) -> None:
@@ -368,8 +387,15 @@ class InstrumentBase:
         if log_file:
             try:
                 timestamp = datetime.now().isoformat()
+                log_line = f"[{timestamp}] {self.name} [ERROR]: {error_msg}\n"
+                # Write to timestamped file
                 with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"[{timestamp}] {self.name} [ERROR]: {error_msg}\n")
+                    f.write(log_line)
+                # Also write to latest file if it exists
+                global _current_instrument_command_log_latest
+                if _current_instrument_command_log_latest and os.path.exists(_current_instrument_command_log_latest):
+                    with open(_current_instrument_command_log_latest, 'a', encoding='utf-8') as f:
+                        f.write(log_line)
             except Exception as e:
                 # Don't fail if logging fails
                 self.logger.debug(f"Failed to write error to command log: {e}")
@@ -398,8 +424,14 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, command)
             
             # Log command to test file with improved formatting
+            cmd_line = f"{timestamp} | {self.name} | WRITE | {command}\n"
             with open(get_test_commands_file(), 'a') as f:
-                f.write(f"{timestamp} | {self.name} | WRITE | {command}\n")
+                f.write(cmd_line)
+            # Also write to latest file if it exists
+            global _current_test_commands_file_latest
+            if _current_test_commands_file_latest and os.path.exists(_current_test_commands_file_latest):
+                with open(_current_test_commands_file_latest, 'a') as f:
+                    f.write(cmd_line)
             self.logger.debug(f"TEST_MODE WRITE: {command}")
         else:
             try:
@@ -425,8 +457,14 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, "READ")
             
             response = "TEST_MODE_RESPONSE"
+            cmd_line = f"{timestamp} | {self.name} | READ | {response}\n"
             with open(get_test_commands_file(), 'a') as f:
-                f.write(f"{timestamp} | {self.name} | READ | {response}\n")
+                f.write(cmd_line)
+            # Also write to latest file if it exists
+            global _current_test_commands_file_latest
+            if _current_test_commands_file_latest and os.path.exists(_current_test_commands_file_latest):
+                with open(_current_test_commands_file_latest, 'a') as f:
+                    f.write(cmd_line)
             self.logger.debug(f"TEST_MODE READ: {response}")
             return response
         else:
@@ -466,8 +504,14 @@ class InstrumentBase:
             _timing_tracker.record_command(self.name, command)
             
             response = "TEST_MODE_RESPONSE"
+            cmd_line = f"{timestamp} | {self.name} | QUERY | {command} -> {response}\n"
             with open(get_test_commands_file(), 'a') as f:
-                f.write(f"{timestamp} | {self.name} | QUERY | {command} -> {response}\n")
+                f.write(cmd_line)
+            # Also write to latest file if it exists
+            global _current_test_commands_file_latest
+            if _current_test_commands_file_latest and os.path.exists(_current_test_commands_file_latest):
+                with open(_current_test_commands_file_latest, 'a') as f:
+                    f.write(cmd_line)
             self.logger.debug(f"TEST_MODE QUERY: {command} -> {response}")
             return response
         else:

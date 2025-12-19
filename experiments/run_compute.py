@@ -129,9 +129,11 @@ class ComputeExperiment(ExperimentRunner):
         # Flag to track if initial setup has been done
         self._channels_initialized = False
         
-        # CSV output file
+        # CSV output files
         self._csv_file = None
         self._csv_writer = None
+        self._csv_file_latest = None
+        self._csv_writer_latest = None
         self._csv_initialized = False
     
     def set_sweep_values(self, param_name: str, values: List[float]) -> None:
@@ -497,12 +499,21 @@ class ComputeExperiment(ExperimentRunner):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_filename = os.path.join(
             measurements_dir,
-            f"compute_measurements_{timestamp}.csv"
+            f"compute_{timestamp}.csv"
         )
         
-        # Open CSV file for writing
+        # Generate CSV filename without timestamp (overwrites each run)
+        csv_filename_latest = os.path.join(
+            measurements_dir,
+            "compute.csv"
+        )
+        
+        # Open CSV files for writing
         self._csv_file = open(csv_filename, 'w', newline='', encoding='utf-8')
         self._csv_writer = csv.writer(self._csv_file)
+        
+        self._csv_file_latest = open(csv_filename_latest, 'w', newline='', encoding='utf-8')
+        self._csv_writer_latest = csv.writer(self._csv_file_latest)
         
         # Define CSV headers
         # Current sources: KGAIN1, KGAIN2, TRIM1, TRIM2, X2, IREFP, F11, F12, X1, IMEAS
@@ -517,12 +528,16 @@ class ComputeExperiment(ExperimentRunner):
             "OUT1_current", "OUT2_current"  # Measurements
         ]
         
-        # Write header row
+        # Write header row to both files
         self._csv_writer.writerow(headers)
         self._csv_file.flush()
         
+        self._csv_writer_latest.writerow(headers)
+        self._csv_file_latest.flush()
+        
         self._csv_initialized = True
         self.logger.info(f"CSV output initialized: {csv_filename}")
+        self.logger.info(f"CSV latest file: {csv_filename_latest}")
     
     def _write_measurement_row(self, ppg_state: str, ppg_voltage: float,
                                fixed_currents: Dict[str, float],
@@ -571,16 +586,27 @@ class ComputeExperiment(ExperimentRunner):
             out2_current,  # OUT2_current
         ]
         
+        # Write row to both files
         self._csv_writer.writerow(row)
         self._csv_file.flush()
+        
+        self._csv_writer_latest.writerow(row)
+        self._csv_file_latest.flush()
     
     def _close_csv_output(self) -> None:
-        """Close CSV output file."""
+        """Close CSV output files."""
         if self._csv_file:
             self._csv_file.close()
             self._csv_file = None
             self._csv_writer = None
-            self.logger.info("CSV output file closed")
+        
+        if self._csv_file_latest:
+            self._csv_file_latest.close()
+            self._csv_file_latest = None
+            self._csv_writer_latest = None
+        
+        if self._csv_initialized:
+            self.logger.info("CSV output files closed")
     
     # ========================================================================
     # Main Experiment Execution

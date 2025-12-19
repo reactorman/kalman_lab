@@ -115,9 +115,11 @@ class ProgrammerExperiment(ExperimentRunner):
         # PROG_IN values from config (10nA to 100nA)
         self.prog_in_values: List[float] = PROGRAMMER_PROG_IN_SWEEP["values"].copy()
         
-        # CSV output file
+        # CSV output files
         self._csv_file = None
         self._csv_writer = None
+        self._csv_file_latest = None
+        self._csv_writer_latest = None
         self._csv_initialized = False
     
     def set_irefp_values(self, values: List[float]) -> None:
@@ -401,12 +403,21 @@ class ProgrammerExperiment(ExperimentRunner):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_filename = os.path.join(
             measurements_dir,
-            f"programmer_measurements_{timestamp}.csv"
+            f"prog_{timestamp}.csv"
         )
         
-        # Open CSV file for writing
+        # Generate CSV filename without timestamp (overwrites each run)
+        csv_filename_latest = os.path.join(
+            measurements_dir,
+            "prog.csv"
+        )
+        
+        # Open CSV files for writing
         self._csv_file = open(csv_filename, 'w', newline='', encoding='utf-8')
         self._csv_writer = csv.writer(self._csv_file)
+        
+        self._csv_file_latest = open(csv_filename_latest, 'w', newline='', encoding='utf-8')
+        self._csv_writer_latest = csv.writer(self._csv_file_latest)
         
         # Define CSV headers
         # Current sources: IREFP, PROG_IN
@@ -458,16 +469,27 @@ class ProgrammerExperiment(ExperimentRunner):
             pulse_width,  # PULSE_WIDTH
         ]
         
+        # Write row to both files
         self._csv_writer.writerow(row)
         self._csv_file.flush()
+        
+        self._csv_writer_latest.writerow(row)
+        self._csv_file_latest.flush()
     
     def _close_csv_output(self) -> None:
-        """Close CSV output file."""
+        """Close CSV output files."""
         if self._csv_file:
             self._csv_file.close()
             self._csv_file = None
             self._csv_writer = None
-            self.logger.info("CSV output file closed")
+        
+        if self._csv_file_latest:
+            self._csv_file_latest.close()
+            self._csv_file_latest = None
+            self._csv_writer_latest = None
+        
+        if self._csv_initialized:
+            self.logger.info("CSV output files closed")
     
     # ========================================================================
     # Main Experiment Execution
