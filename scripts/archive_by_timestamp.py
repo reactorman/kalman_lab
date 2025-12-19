@@ -19,7 +19,7 @@ The script searches in:
     - logs/
     - measurements/
     
-Matching files are compressed into a single archive file placed in:
+All matching files from these directories are compressed into a single archive file placed in:
     - archive/
 """
 

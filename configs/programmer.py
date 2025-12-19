@@ -8,29 +8,30 @@ This experiment characterizes programming timing by measuring the delay
 from WR_ENB going low until PROG_OUT goes low.
 
 Resource Allocation Summary:
-    V terminals (2): PROG_OUT (with series resistor), ICELLMEAS
-        → 5270B HR SMUs (channels 1-2)
+    V terminals (5): PROG_OUT (Pin 6, with series resistor), ICELLMEAS (Pin 5),
+                     VDD (Pin 19, 1.8V), VCC (Pin 17, 5V), ERASE_PROG (Pin 13, 5V or 0V)
+        → 5270B HR SMUs (channels 1-2, 5-7)
     
-    I terminals (2): IREFP, PROG_IN
+    I terminals (2): IREFP (Pin 10), PROG_IN (Pin 7)
         → 5270B HR SMUs (channels 3-4)
     
-    GNDU terminal (1): VSS
+    GNDU terminal (1): VSS (Pin 18)
         → 5270B GNDU
     
-    PPG terminal (1): WR_ENB
+    PPG terminal (1): WR_ENB (Pin 8)
         → 81104A Channel 1
     
     COUNTER terminal (time interval measurement):
-        → 53230A Channel 1 (start - from PPG WR_ENB)
-        → 53230A Channel 2 (stop - from PROG_OUT SMU)
+        → 53230A Channel 1 (start - from PPG WR_ENB, Pin 8)
+        → 53230A Channel 2 (stop - from PROG_OUT SMU, Pin 6)
 
 Note: 4156B is NOT used in this experiment. All SMU functions are
       performed by the 5270B.
 
 Counter Configuration:
-    - Channel 1: Connected to PPG output (WR_ENB) - start event
-    - Channel 2: Connected to PROG_OUT SMU output - stop event
-    - Time interval measurement: WR_ENB falling edge to PROG_OUT falling edge
+    - Channel 1: Connected to PPG output (WR_ENB, Pin 8) - start event
+    - Channel 2: Connected to PROG_OUT SMU output (Pin 6) - stop event
+    - Time interval measurement: WR_ENB (Pin 8) falling edge to PROG_OUT (Pin 6) falling edge
     - Threshold voltage: VCC/2 on both channels
 
 Compliance Settings:
@@ -93,7 +94,33 @@ PROGRAMMER_TERMINALS = {
         measurement_type=MeasurementType.GNDU,
         instrument=InstrumentType.IV5270B,
         channel=0,  # GNDU is channel 0 in our convention
-        description="Ground reference - 5270B GNDU"
+        description="Ground reference - 5270B GNDU (Pin 18)"
+    ),
+    
+    # ------------------------------------
+    # V Terminals - Voltage Sources (continued)
+    # VDD, VCC, and ERASE_PROG are voltage sources on 5270B
+    # ------------------------------------
+    "VDD": TerminalConfig(
+        terminal="VDD",
+        measurement_type=MeasurementType.V,
+        instrument=InstrumentType.IV5270B,
+        channel=5,
+        description="Power supply voltage source - 5270B HR SMU Channel 5, 1.8V (Pin 19)"
+    ),
+    "VCC": TerminalConfig(
+        terminal="VCC",
+        measurement_type=MeasurementType.V,
+        instrument=InstrumentType.IV5270B,
+        channel=6,
+        description="VCC voltage source - 5270B HR SMU Channel 6, 5V (Pin 17)"
+    ),
+    "ERASE_PROG": TerminalConfig(
+        terminal="ERASE_PROG",
+        measurement_type=MeasurementType.V,
+        instrument=InstrumentType.IV5270B,
+        channel=7,
+        description="Erase/Program voltage source - 5270B HR SMU Channel 7, 5V (erase) or 0V (program) (Pin 13)"
     ),
     
     # ------------------------------------
@@ -105,7 +132,7 @@ PROGRAMMER_TERMINALS = {
         measurement_type=MeasurementType.PPG,
         instrument=InstrumentType.PG81104A,
         channel=1,
-        description="Write enable pulse - 81104A Channel 1"
+        description="Write enable pulse - 81104A Channel 1 (Pin 8)"
     ),
     
     # ------------------------------------
@@ -182,13 +209,16 @@ PROGRAMMER_BY_TYPE = {
 }
 
 # ============================================================================
-# Pulse Generator Configuration for WR_ENB
+# Pulse Generator Configuration for WR_ENB (Pin 8)
 # ============================================================================
-# WR_ENB behavior:
+# WR_ENB (Pin 8) behavior:
 #   - Starts at VCC (idle high)
 #   - When triggered, falls to 0V with 10ns rise/fall time
 #   - Remains at 0V for 1ms
 #   - Returns to VCC
+#
+# Note: ERASE_PROG (Pin 13) is now a voltage source on 5270B Channel 7,
+#       not a PPG terminal. It is set to 5V for erase or 0V for program.
 
 PROGRAMMER_PULSE_CONFIG = {
     "WR_ENB": {
@@ -205,15 +235,15 @@ PROGRAMMER_PULSE_CONFIG = {
 # ============================================================================
 # Counter Configuration for Time Interval Measurement
 # ============================================================================
-# Counter measures time from WR_ENB going low to PROG_OUT going low
-#   - Channel 1: Start event (WR_ENB falling edge from PPG)
-#   - Channel 2: Stop event (PROG_OUT falling edge from SMU)
+# Counter measures time from WR_ENB (Pin 8) going low to PROG_OUT (Pin 6) going low
+#   - Channel 1: Start event (WR_ENB, Pin 8, falling edge from PPG)
+#   - Channel 2: Stop event (PROG_OUT, Pin 6, falling edge from SMU)
 #   - Threshold: VCC/2 on both channels
 
 PROGRAMMER_COUNTER_CONFIG = {
     "time_interval": {
-        "start_channel": 1,     # CH1 connected to PPG (WR_ENB)
-        "stop_channel": 2,      # CH2 connected to PROG_OUT SMU
+        "start_channel": 1,     # CH1 connected to PPG (WR_ENB, Pin 8)
+        "stop_channel": 2,      # CH2 connected to PROG_OUT SMU (Pin 6)
         "coupling": "DC",       # DC coupling for logic signals
         "impedance": 1000000,   # 1 MOhm input impedance
         "threshold": None,      # Set to VCC/2 at runtime
@@ -223,9 +253,9 @@ PROGRAMMER_COUNTER_CONFIG = {
 }
 
 # ============================================================================
-# PROG_IN Current Sweep Configuration
+# PROG_IN (Pin 7) Current Sweep Configuration
 # ============================================================================
-# PROG_IN sweeps from 10nA to 100nA in steps of 10nA
+# PROG_IN (Pin 7) sweeps from 10nA to 100nA in steps of 10nA
 
 PROGRAMMER_PROG_IN_SWEEP = {
     "start": 10e-9,     # 10 nA
@@ -246,8 +276,10 @@ PROGRAMMER_IREFP_VALUES = []  # User will populate this list
 # ============================================================================
 
 PROGRAMMER_DEFAULTS = {
-    "VDD": 1.8,   # Power supply voltage
-    "VCC": 5.0,   # VCC voltage
+    "VDD": 1.8,   # Power supply voltage (Pin 19)
+    "VCC": 5.0,   # VCC voltage (Pin 17)
+    "ERASE_PROG_ERASE": 5.0,   # ERASE_PROG voltage for erase state (Pin 13)
+    "ERASE_PROG_PROGRAM": 0.0, # ERASE_PROG voltage for program state (Pin 13)
 }
 
 # ============================================================================

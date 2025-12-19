@@ -39,10 +39,12 @@ class CT53230A(InstrumentBase):
         super().__init__(resource_manager, address, "CT53230A", timeout)
     
     def reset(self) -> None:
-        """Reset the counter to default settings."""
+        """Reset the counter to default settings and set all channels to AC coupling."""
         self.write("*RST")
         self.write("*CLS")
-        self.logger.info("CT53230A reset to default state")
+        # Set all channels to AC coupling
+        self.set_all_channels_ac_coupled()
+        self.logger.info("CT53230A reset to default state with AC coupling")
     
     def error_query(self) -> str:
         """
@@ -161,6 +163,16 @@ class CT53230A(InstrumentBase):
         self.write(f"INP{channel}:COUP {coupling}")
         self.logger.info(f"Channel {channel} coupling set to {coupling}")
     
+    def set_all_channels_ac_coupled(self) -> None:
+        """
+        Set all input channels (1, 2, 3) to AC coupling.
+        
+        Reference: INPut:COUPling command
+        """
+        for channel in [1, 2, 3]:
+            self.write(f"INP{channel}:COUP AC")
+        self.logger.info("All channels set to AC coupling")
+    
     def set_impedance(self, channel: int, impedance: int = 1000000) -> None:
         """
         Set the input impedance for a channel.
@@ -189,7 +201,8 @@ class CT53230A(InstrumentBase):
         slope = slope.upper()
         if slope not in ["POS", "NEG"]:
             raise ValueError("Slope must be 'POS' or 'NEG'")
-        self.write(f"INP{channel}:SLOP {slope}")
+        # Use full command name SLOPe (not abbreviated SLOP)
+        self.write(f"INP{channel}:SLOPe {slope}")
         edge_str = "rising" if slope == "POS" else "falling"
         self.logger.info(f"Channel {channel} trigger slope: {edge_str} edge")
     
