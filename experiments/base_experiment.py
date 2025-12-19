@@ -77,27 +77,45 @@ class ExperimentRunner:
         # Set up logging
         ensure_directories()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Short name mapping for log files
+        short_names = {
+            "Compute": "compute",
+            "Programmer": "prog",
+        }
+        short_name = short_names.get(config.name, config.name.lower())
         log_file = os.path.join(
             LOG_DIR,
-            f'{config.name}_{timestamp}.log'
+            f'{short_name}_{timestamp}.log'
         )
+        log_file_latest = os.path.join(
+            LOG_DIR,
+            f'{short_name}.log'
+        )
+        
+        # Create file handlers for both timestamped and latest log files
+        file_handlers = [
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.FileHandler(log_file_latest, encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
         
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=file_handlers
         )
         self.logger = logging.getLogger(f'Experiment.{config.name}')
         
         # Set up instrument command log (for debugging)
         instrument_command_log = os.path.join(
             LOG_DIR,
-            f'{config.name}_instrument_commands_{timestamp}.txt'
+            f'{short_name}_inst_{timestamp}.txt'
         )
-        set_instrument_command_log(instrument_command_log)
+        instrument_command_log_latest = os.path.join(
+            LOG_DIR,
+            f'{short_name}_inst.txt'
+        )
+        set_instrument_command_log(instrument_command_log, instrument_command_log_latest)
         self.logger.info(f"Instrument command log: {instrument_command_log}")
         
         # Set global test mode
@@ -107,9 +125,13 @@ class ExperimentRunner:
             # Set up experiment-specific test commands file
             test_commands_file = os.path.join(
                 LOG_DIR,
-                f'{config.name}_commands_{timestamp}.txt'
+                f'{short_name}_cmd_{timestamp}.txt'
             )
-            set_test_commands_file(test_commands_file)
+            test_commands_file_latest = os.path.join(
+                LOG_DIR,
+                f'{short_name}_cmd.txt'
+            )
+            set_test_commands_file(test_commands_file, test_commands_file_latest)
             
             self.logger.info("=" * 60)
             self.logger.info("RUNNING IN TEST MODE - No hardware communication")

@@ -43,6 +43,8 @@ import os
 import argparse
 import logging
 import itertools
+import csv
+from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
 
 # Add parent directory to path for imports
@@ -126,6 +128,13 @@ class ComputeExperiment(ExperimentRunner):
         
         # Flag to track if initial setup has been done
         self._channels_initialized = False
+        
+        # CSV output files
+        self._csv_file = None
+        self._csv_writer = None
+        self._csv_file_latest = None
+        self._csv_writer_latest = None
+        self._csv_initialized = False
     
     def set_sweep_values(self, param_name: str, values: List[float]) -> None:
         """
@@ -467,6 +476,140 @@ class ComputeExperiment(ExperimentRunner):
         self.set_ppg_dc_mode("ERASE_PROG", voltage)
     
     # ========================================================================
+    # CSV Output Management
+    # ========================================================================
+    
+    def _initialize_csv_output(self) -> None:
+        """
+        Initialize CSV output file with headers for all current and voltage sources.
+        
+        Creates a measurements folder if it doesn't exist and sets up the CSV file
+        with columns for all source values and measurement results.
+        """
+        if self._csv_initialized:
+            return
+        
+        # Create measurements folder if it doesn't exist
+        measurements_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "measurements"
+        )
+        os.makedirs(measurements_dir, exist_ok=True)
+        
+        # Generate CSV filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = os.path.join(
+            measurements_dir,
+            f"compute_{timestamp}.csv"
+        )
+        
+        # Generate CSV filename without timestamp (overwrites each run)
+        csv_filename_latest = os.path.join(
+            measurements_dir,
+            "compute.csv"
+        )
+        
+        # Open CSV files for writing
+        self._csv_file = open(csv_filename, 'w', newline='', encoding='utf-8')
+        self._csv_writer = csv.writer(self._csv_file)
+        
+        self._csv_file_latest = open(csv_filename_latest, 'w', newline='', encoding='utf-8')
+        self._csv_writer_latest = csv.writer(self._csv_file_latest)
+        
+        # Define CSV headers
+        # Current sources: KGAIN1, KGAIN2, TRIM1, TRIM2, X2, IREFP, F11, F12, X1, IMEAS
+        # Voltage sources: VDD, VCC, ERASE_PROG (PPG), OUT1, OUT2
+        # Measurements: OUT1_current, OUT2_current
+        # Metadata: PPG_state
+        headers = [
+            "PPG_state",
+            "VDD", "VCC", "ERASE_PROG", "OUT1", "OUT2",  # Voltage sources
+            "KGAIN1", "KGAIN2", "TRIM1", "TRIM2", "X2", "IREFP", "F11", "F12",  # Fixed current sources
+            "X1", "IMEAS",  # Sweep current sources
+            "OUT1_current", "OUT2_current"  # Measurements
+        ]
+        
+        # Write header row to both files
+        self._csv_writer.writerow(headers)
+        self._csv_file.flush()
+        
+        self._csv_writer_latest.writerow(headers)
+        self._csv_file_latest.flush()
+        
+        self._csv_initialized = True
+        self.logger.info(f"CSV output initialized: {csv_filename}")
+        self.logger.info(f"CSV latest file: {csv_filename_latest}")
+    
+    def _write_measurement_row(self, ppg_state: str, ppg_voltage: float,
+                               fixed_currents: Dict[str, float],
+                               x1_value: float, imeas_value: float,
+                               out1_current: float, out2_current: float) -> None:
+        """
+        Write a single measurement row to CSV.
+        
+        Args:
+            ppg_state: PPG state name ("ERASE" or "PROGRAM")
+            ppg_voltage: PPG voltage in volts
+            fixed_currents: Dictionary of fixed current values
+            x1_value: X1 current value in Amps
+            imeas_value: IMEAS current value in Amps
+            out1_current: Measured OUT1 current in Amps
+            out2_current: Measured OUT2 current in Amps
+        """
+        if not self._csv_initialized:
+            self._initialize_csv_output()
+        
+        # Get all fixed current values (handle linked parameters)
+        # KGAIN1 and KGAIN2 are linked (same value from "KGAIN" key)
+        # TRIM1 and TRIM2 are linked (same value from "TRIM" key)
+        kgain_value = fixed_currents.get("KGAIN", 0.0)
+        trim_value = fixed_currents.get("TRIM", 0.0)
+        
+        # Build row data
+        row = [
+            ppg_state,  # PPG_state
+            self.vdd,  # VDD
+            self.vcc,  # VCC
+            ppg_voltage,  # ERASE_PROG (PPG voltage)
+            self.vdd,  # OUT1 (always at VDD)
+            self.vdd,  # OUT2 (always at VDD)
+            kgain_value,  # KGAIN1
+            kgain_value,  # KGAIN2
+            trim_value,  # TRIM1
+            trim_value,  # TRIM2
+            fixed_currents.get("X2", 0.0),  # X2
+            fixed_currents.get("IREFP", 0.0),  # IREFP
+            fixed_currents.get("F11", 0.0),  # F11
+            fixed_currents.get("F12", 0.0),  # F12
+            x1_value,  # X1
+            imeas_value,  # IMEAS
+            out1_current,  # OUT1_current
+            out2_current,  # OUT2_current
+        ]
+        
+        # Write row to both files
+        self._csv_writer.writerow(row)
+        self._csv_file.flush()
+        
+        self._csv_writer_latest.writerow(row)
+        self._csv_file_latest.flush()
+    
+    def _close_csv_output(self) -> None:
+        """Close CSV output files."""
+        if self._csv_file:
+            self._csv_file.close()
+            self._csv_file = None
+            self._csv_writer = None
+        
+        if self._csv_file_latest:
+            self._csv_file_latest.close()
+            self._csv_file_latest = None
+            self._csv_writer_latest = None
+        
+        if self._csv_initialized:
+            self.logger.info("CSV output files closed")
+    
+    # ========================================================================
     # Main Experiment Execution
     # ========================================================================
     
@@ -521,6 +664,9 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("=" * 60)
         self.logger.info("ONE-TIME INITIALIZATION")
         self.logger.info("=" * 60)
+        
+        # Initialize CSV output
+        self._initialize_csv_output()
         
         # Enable all channels on all instruments (one-time)
         self.initialize_all_channels()
@@ -578,13 +724,50 @@ class ComputeExperiment(ExperimentRunner):
                     # Execute IMEAS sweep for this X1 value
                     sweep_results = self.execute_imeas_sweep(x1_value)
                     
+                    # Get PPG voltage for this state
+                    ppg_voltage = self.get_ppg_state_voltage(ppg_state)
+                    
+                    # Write each sweep point to CSV
+                    # sweep_results contains:
+                    # - sweep_points: List of (X1_current, IMEAS_current) tuples
+                    # - OUT1_currents: List of measured OUT1 currents
+                    # - OUT2_currents: List of measured OUT2 currents
+                    for sweep_idx, (x1_actual, imeas_actual) in enumerate(sweep_results["sweep_points"]):
+                        # Get measured currents for this sweep point
+                        if sweep_idx < len(sweep_results["OUT1_currents"]):
+                            out1_current = sweep_results["OUT1_currents"][sweep_idx]
+                        else:
+                            out1_current = 0.0
+                        
+                        if sweep_idx < len(sweep_results["OUT2_currents"]):
+                            out2_current = sweep_results["OUT2_currents"][sweep_idx]
+                        else:
+                            out2_current = 0.0
+                        
+                        # In test mode, use dummy measurement data but keep correct voltage/current settings
+                        if self.test_mode:
+                            # Use small dummy values for measurements, but keep actual voltage/current settings
+                            out1_current = 1e-12  # Dummy measurement
+                            out2_current = 1e-12  # Dummy measurement
+                        
+                        # Write row to CSV
+                        self._write_measurement_row(
+                            ppg_state=ppg_state,
+                            ppg_voltage=ppg_voltage,
+                            fixed_currents=combo,
+                            x1_value=x1_actual,
+                            imeas_value=imeas_actual,
+                            out1_current=out1_current,
+                            out2_current=out2_current
+                        )
+                    
                     # Store results
                     measurement = {
                         "combination_index": i,
                         "x1_index": x1_idx,
                         "x1_value": x1_value,
                         "ppg_state": ppg_state,
-                        "ppg_voltage": self.get_ppg_state_voltage(ppg_state),
+                        "ppg_voltage": ppg_voltage,
                         "fixed_currents": combo,
                         "sweep_results": sweep_results,
                     }
@@ -602,7 +785,19 @@ class ComputeExperiment(ExperimentRunner):
                         f"({len(combinations)} combinations x {len(self.x1_values)} X1 values x {len(COMPUTE_PPG_STATE_ORDER)} PPG states)")
         self.logger.info("=" * 60)
         
+        # Close CSV output
+        self._close_csv_output()
+        
         return results
+    
+    # ========================================================================
+    # Cleanup
+    # ========================================================================
+    
+    def shutdown(self) -> None:
+        """Override shutdown to close CSV output."""
+        self._close_csv_output()
+        super().shutdown()
     
     # ========================================================================
     # Legacy API (for backwards compatibility)
