@@ -32,23 +32,28 @@ VCC = 5.0       # VCC voltage in volts
 # KGAIN current values (applied to both KGAIN1 and KGAIN2 - they are linked)
 KGAIN_VALUES = [
     0e-9,       # 1 µA
+    5e-9,
     10e-9,       # 2 µA
     20e-9,       # 5 µA
 ]
 
 # TRIM current values (applied to both TRIM1 and TRIM2 - they are linked)
 TRIM_VALUES = [
+    1e-9,
+    5e-9,
     10e-9,       # 1 µA
     50e-9,       # 2 µA
 ]
 
 # X2 current values
 X2_VALUES = [
+    5e-9,
     10e-9,       # 1 µA
 ]
 
 # IREFP current values
 IREFP_VALUES = [
+    10e-9,
     100e-9,       # 1 µA
 ]
 
@@ -59,6 +64,7 @@ F11_VALUES = [
 
 # F12 current values
 F12_VALUES = [
+    5e-9,
     10e-9,       # 1 µA
 ]
 
@@ -66,17 +72,26 @@ F12_VALUES = [
 # 3. X1 FIXED VALUES AND IMEAS SWEEP CONFIGURATION
 # ============================================================================
 # X1 is set to fixed current values. For each X1 value, IMEAS sweeps from
-# (X1 - 20nA) to (X1 + 20nA) in steps of 5nA.
+# (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET) in IMEAS_NUM_STEPS steps.
 # Units: Amps
 
 # X1 fixed current values (list of values to iterate through)
 X1_VALUES = [
-    20e-9,        
-    40e-9,       
-    60e-9,       
-    80e-9,      
-    100e-9,      
+    10e-9,
+    20e-9, 
+    30e-9,
+    40e-9,
+    50e-9,
+    60e-9,
+    70e-9,
+    80e-9,
+    90e-9,
 ]
+
+# IMEAS sweep configuration (relative to each X1 value)
+# IMEAS sweeps from (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET)
+IMEAS_RANGE_OFFSET = 20e-9    # ±20nA around X1 value
+IMEAS_NUM_STEPS = 100           # Number of sweep points (step size = 2*IMEAS_RANGE_OFFSET/(IMEAS_NUM_STEPS-1))
 
 # ============================================================================
 # 4. PPG SETTINGS (DC Mode for ERASE_PROG)
@@ -100,7 +115,7 @@ PPG_STATE_ORDER = ["ERASE", "PROGRAM"]
 VOLTAGE_SOURCE_COMPLIANCE = 0.001   # 1 mA
 
 # Voltage compliance for current sources (V)
-CURRENT_SOURCE_COMPLIANCE = 2.0     # 2 V
+CURRENT_SOURCE_COMPLIANCE = 0.1     # 2 V
 
 # ============================================================================
 # HELPER FUNCTION - Get all settings as dict
@@ -121,6 +136,8 @@ def get_settings():
         "F12": F12_VALUES,
         # X1 and IMEAS
         "X1_VALUES": X1_VALUES,
+        "IMEAS_RANGE_OFFSET": IMEAS_RANGE_OFFSET,
+        "IMEAS_NUM_STEPS": IMEAS_NUM_STEPS,
         # PPG
         "PPG_ERASE_VOLTAGE": PPG_ERASE_VOLTAGE,
         "PPG_PROGRAM_VOLTAGE": PPG_PROGRAM_VOLTAGE,

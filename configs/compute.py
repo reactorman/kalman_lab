@@ -360,15 +360,15 @@ COMPUTE_SYNC_SWEEP_SOURCES = {
     "X1": {
         "start": 20.0e-9,      # Start current in Amps
         "stop": 80e-9,       # Stop current in Amps
-        "step": 5e-9,       # Step current in Amps
-        "compliance": 2.0,  # Voltage compliance
+        "step": 1e-9,       # Step current in Amps
+        "compliance": 1.8,  # Voltage compliance
         "description": "X1 sweep configuration"
     },
     "IMEAS": {
         "start": 0.0,      # Start current in Amps
         "stop": 0.0,       # Stop current in Amps
         "step": 0.0,       # Step current in Amps
-        "compliance": 2.0,  # Voltage compliance
+        "compliance": 1.8,  # Voltage compliance
         "description": "IMEAS sweep configuration (synchronous with X1)"
     },
 }

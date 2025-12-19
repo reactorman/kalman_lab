@@ -44,6 +44,8 @@ import argparse
 import logging
 import itertools
 import csv
+import re
+import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
 
@@ -307,10 +309,11 @@ class ComputeExperiment(ExperimentRunner):
         out1_cfg = self.get_terminal_config("OUT1")
         out2_cfg = self.get_terminal_config("OUT2")
         
-        # Define IMEAS sweep: from (X1 - 20nA) to (X1 + 20nA) in steps of 10nA (5 points)
-        imeas_start = x1_value - 20e-9
-        imeas_stop = x1_value + 20e-9
-        num_steps = 5  # 5 points: -20nA, -10nA, 0, +10nA, +20nA
+        # Define IMEAS sweep: from (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET)
+        # Sweep settings are loaded from configs/compute_settings.py
+        imeas_start = x1_value - SETTINGS.IMEAS_RANGE_OFFSET
+        imeas_stop = x1_value + SETTINGS.IMEAS_RANGE_OFFSET
+        num_steps = SETTINGS.IMEAS_NUM_STEPS
         
         self.logger.info(f"Executing IMEAS ({imeas_cfg.terminal}) sweep for X1 ({x1_cfg.terminal}) = {x1_value}A...")
         self.logger.info(f"IMEAS ({imeas_cfg.terminal}) sweep: {imeas_start}A to {imeas_stop}A, {num_steps} steps")
@@ -356,8 +359,24 @@ class ComputeExperiment(ExperimentRunner):
         try:
             # Parse comma-separated values
             parts = data.split(",")
+            
+            # Remove 3-letter prefixes (like TAI, TBI) from each value
+            def remove_3letter_prefix(value: str) -> str:
+                """Remove 3-letter alphabetic prefix from value if present."""
+                value = value.strip()
+                # Check if value starts with exactly 3 letters (case-insensitive)
+                # followed by a number, decimal point, or sign
+                if len(value) >= 3 and value[:3].isalpha():
+                    # Check if the 4th character (if exists) is a digit, decimal, or sign
+                    if len(value) == 3 or value[3] in '+-.0123456789':
+                        return value[3:]  # Remove first 3 characters
+                return value
+            
+            # Clean all parts by removing 3-letter prefixes
+            cleaned_parts = [remove_3letter_prefix(part) for part in parts]
+            
             # For each sweep point, we expect 2 values (OUT1 and OUT2 currents)
-            num_points = len(parts) // 2
+            num_points = len(cleaned_parts) // 2
             if num_points == 0:
                 num_points = 1  # Fallback if parsing fails
             
@@ -369,16 +388,16 @@ class ComputeExperiment(ExperimentRunner):
             
             # Parse current values
             for i in range(min(num_points, num_steps)):
-                if i * 2 + 1 < len(parts):
+                if i * 2 + 1 < len(cleaned_parts):
                     try:
-                        out1_current = float(parts[i * 2].strip())
-                        out2_current = float(parts[i * 2 + 1].strip())
+                        out1_current = float(cleaned_parts[i * 2])
+                        out2_current = float(cleaned_parts[i * 2 + 1])
                     except (ValueError, IndexError):
                         # Try alternative parsing if format is different
                         try:
                             # Remove any non-numeric prefixes/suffixes
-                            out1_str = parts[i * 2].strip().replace("I", "").replace("A", "")
-                            out2_str = parts[i * 2 + 1].strip().replace("I", "").replace("A", "")
+                            out1_str = cleaned_parts[i * 2].replace("I", "").replace("A", "")
+                            out2_str = cleaned_parts[i * 2 + 1].replace("I", "").replace("A", "")
                             out1_current = float(out1_str)
                             out2_current = float(out2_str)
                         except (ValueError, IndexError):
@@ -637,6 +656,9 @@ class ComputeExperiment(ExperimentRunner):
         Returns:
             Dictionary containing all measurement results
         """
+        # Track start time for total elapsed time measurement
+        start_time = time.time()
+        
         self.logger.info("=" * 60)
         self.logger.info("Executing Compute experiment measurement sequence")
         self.logger.info("=" * 60)
@@ -783,6 +805,26 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("Compute experiment complete")
         self.logger.info(f"Total measurements: {measurement_num} "
                         f"({len(combinations)} combinations x {len(self.x1_values)} X1 values x {len(COMPUTE_PPG_STATE_ORDER)} PPG states)")
+        self.logger.info("=" * 60)
+        
+        # Calculate and log total elapsed time
+        end_time = time.time()
+        total_elapsed_time = end_time - start_time
+        
+        # Format time in a readable way
+        hours = int(total_elapsed_time // 3600)
+        minutes = int((total_elapsed_time % 3600) // 60)
+        seconds = total_elapsed_time % 60
+        
+        self.logger.info("=" * 60)
+        self.logger.info("TOTAL EXPERIMENT TIME")
+        self.logger.info("=" * 60)
+        if hours > 0:
+            self.logger.info(f"Total elapsed time: {hours}h {minutes}m {seconds:.2f}s ({total_elapsed_time:.2f} seconds)")
+        elif minutes > 0:
+            self.logger.info(f"Total elapsed time: {minutes}m {seconds:.2f}s ({total_elapsed_time:.2f} seconds)")
+        else:
+            self.logger.info(f"Total elapsed time: {seconds:.2f}s")
         self.logger.info("=" * 60)
         
         # Close CSV output
