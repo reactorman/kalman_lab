@@ -267,7 +267,7 @@ class ProgrammerExperiment(ExperimentRunner):
         cfg = PROGRAMMER_COUNTER_CONFIG["time_interval"]
         
         # Threshold is VCC/2
-        threshold = self.vcc / 2.0
+        threshold = self.vcc / 100.0
         
         # Configure for time interval measurement
         counter.configure_time_interval(
@@ -369,11 +369,7 @@ class ProgrammerExperiment(ExperimentRunner):
         counter = self._get_instrument(InstrumentType.CT53230A)
         cfg = PROGRAMMER_COUNTER_CONFIG["time_interval"]
         
-        interval = counter.measure_time_interval(
-            start_channel=cfg["start_channel"],
-            stop_channel=cfg["stop_channel"],
-            record=True
-        )
+        interval = counter.read_measurement()
         
         self.logger.info(f"Time interval (pulse width): {interval*1e6:.3f} µs")
         return interval
@@ -586,7 +582,7 @@ class ProgrammerExperiment(ExperimentRunner):
                 
                 # Read counter for time interval
                 pulse_width = self.measure_time_interval()
-                
+                                
                 # Final ICELLMEAS measurement
                 icellmeas_final = self.measure_icellmeas_current("FINAL")
                 

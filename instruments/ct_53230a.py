@@ -37,14 +37,15 @@ class CT53230A(InstrumentBase):
             timeout: Communication timeout in ms (default: 10000)
         """
         super().__init__(resource_manager, address, "CT53230A", timeout)
+        # Set system timeout to 5 seconds
+        self.write("SYST:TIMEOUT 5")
+        self.logger.info("System timeout set to 5 seconds")
     
     def reset(self) -> None:
-        """Reset the counter to default settings and set all channels to AC coupling."""
+        """Reset the counter to default settings."""
         self.write("*RST")
         self.write("*CLS")
-        # Set all channels to AC coupling
-        self.set_all_channels_ac_coupled()
-        self.logger.info("CT53230A reset to default state with AC coupling")
+        self.logger.info("CT53230A reset to default state")
     
     def error_query(self) -> str:
         """
@@ -201,8 +202,7 @@ class CT53230A(InstrumentBase):
         slope = slope.upper()
         if slope not in ["POS", "NEG"]:
             raise ValueError("Slope must be 'POS' or 'NEG'")
-        # Use full command name SLOPe (not abbreviated SLOP)
-        self.write(f"INP{channel}:SLOPe {slope}")
+        self.write(f"INP{channel}:SLOP {slope}")
         edge_str = "rising" if slope == "POS" else "falling"
         self.logger.info(f"Channel {channel} trigger slope: {edge_str} edge")
     
