@@ -37,9 +37,9 @@ class CT53230A(InstrumentBase):
             timeout: Communication timeout in ms (default: 10000)
         """
         super().__init__(resource_manager, address, "CT53230A", timeout)
-        # Set system timeout to 5 seconds
-        self.write("SYST:TIMEOUT 5")
-        self.logger.info("System timeout set to 5 seconds")
+        # Set system timeout to 1 second
+        self.write("SYST:TIMEOUT 1")
+        self.logger.info("System timeout set to 1 second")
     
     def reset(self) -> None:
         """Reset the counter to default settings."""

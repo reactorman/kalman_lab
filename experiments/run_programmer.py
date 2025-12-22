@@ -96,7 +96,8 @@ class ProgrammerExperiment(ExperimentRunner):
     All currents are "pulled" (positive = into IV meter).
     """
     
-    def __init__(self, test_mode: bool = False, vdd: float = None, vcc: float = None):
+    def __init__(self, test_mode: bool = False, vdd: float = None, vcc: float = None,
+                 prog_out_mode: str = "voltage"):
         """
         Initialize Programmer experiment.
         
@@ -104,10 +105,15 @@ class ProgrammerExperiment(ExperimentRunner):
             test_mode: If True, log commands without hardware
             vdd: VDD voltage in volts (default: 1.8V)
             vcc: VCC voltage in volts (default: 5.0V)
+            prog_out_mode: "voltage" (VCC with series resistor) or "current" (+100nA with 1.8V limit)
         """
         super().__init__(PROGRAMMER_CONFIG, test_mode)
         self.vdd = vdd if vdd is not None else PROGRAMMER_DEFAULTS["VDD"]
         self.vcc = vcc if vcc is not None else PROGRAMMER_DEFAULTS["VCC"]
+        self.prog_out_mode = prog_out_mode.lower()
+        
+        if self.prog_out_mode not in ["voltage", "current"]:
+            raise ValueError("prog_out_mode must be 'voltage' or 'current'")
         
         # IREFP values (user configurable)
         self.irefp_values: List[float] = []
@@ -160,10 +166,14 @@ class ProgrammerExperiment(ExperimentRunner):
         irefp_ch = self.get_terminal_config("IREFP").channel
         prog_in_ch = self.get_terminal_config("PROG_IN").channel
         gndu_ch = self.get_terminal_config("VSS").channel
+        vdd_ch = self.get_terminal_config("VDD").channel
+        vcc_ch = self.get_terminal_config("VCC").channel
+        erase_prog_ch = self.get_terminal_config("ERASE_PROG").channel
         
-        iv.enable_channels([gndu_ch, prog_out_ch, icellmeas_ch, irefp_ch, prog_in_ch])
+        iv.enable_channels([gndu_ch, prog_out_ch, icellmeas_ch, irefp_ch, prog_in_ch, vdd_ch, vcc_ch, erase_prog_ch])
         self.logger.info(f"Enabled SMU channels: GNDU={gndu_ch}, PROG_OUT={prog_out_ch}, "
-                        f"ICELLMEAS={icellmeas_ch}, IREFP={irefp_ch}, PROG_IN={prog_in_ch}")
+                        f"ICELLMEAS={icellmeas_ch}, IREFP={irefp_ch}, PROG_IN={prog_in_ch}, "
+                        f"VDD={vdd_ch}, VCC={vcc_ch}, ERASE_PROG={erase_prog_ch}")
         
         # Configure PPG (once)
         self._configure_ppg()
@@ -229,36 +239,67 @@ class ProgrammerExperiment(ExperimentRunner):
         
         self.logger.info(f"WR_ENB: Idle at {self.vcc}V, pulse to 0V for 1ms, 10ns edges")
     
-    def _configure_voltage_sources(self) -> None:
+    def _configure_voltage_sources(self, mode: str = "ERASE") -> None:
         """
-        Configure voltage sources (called once during initialization).
+        Configure voltage sources (called during initialization and when switching modes).
         
-        - PROG_OUT: VCC with series resistor enabled
+        - PROG_OUT: Two modes available:
+          * voltage mode: VCC with series resistor enabled
+          * current mode: +100nA current source with 1.8V compliance
         - ICELLMEAS: VDD/2
+        - VDD: self.vdd (power supply voltage)
+        - VCC: self.vcc (VCC voltage)
+        - ERASE_PROG: VCC for ERASE mode, 0V for PROGRAM mode
+        
+        Args:
+            mode: "ERASE" or "PROGRAM" - sets ERASE_PROG voltage accordingly
         """
         self.logger.info("-" * 40)
-        self.logger.info("Configuring voltage sources")
+        self.logger.info(f"Configuring voltage sources (mode={mode})")
         
         # Get 5270B instrument
         iv = self._get_instrument(InstrumentType.IV5270B)
         
-        # PROG_OUT: VCC with series resistor enabled
-        prog_out_cfg = self.get_terminal_config("PROG_OUT")
-        iv.set_series_resistor(prog_out_cfg.channel, True)
-        self.set_terminal_voltage("PROG_OUT", self.vcc)
-        self.logger.info(f"PROG_OUT: {self.vcc}V with series resistor enabled")
+        # Configure all other channels first, then PROG_OUT last
         
         # ICELLMEAS: VDD/2
         icellmeas_voltage = self.vdd / 2.0
         self.set_terminal_voltage("ICELLMEAS", icellmeas_voltage)
         self.logger.info(f"ICELLMEAS: {icellmeas_voltage}V (VDD/2)")
+        
+        # VDD: Power supply voltage
+        self.set_terminal_voltage("VDD", self.vdd)
+        self.logger.info(f"VDD: {self.vdd}V")
+        
+        # VCC: VCC voltage
+        self.set_terminal_voltage("VCC", self.vcc)
+        self.logger.info(f"VCC: {self.vcc}V")
+        
+        # ERASE_PROG: VCC for ERASE, 0V for PROGRAM
+        erase_prog_voltage = self.vcc if mode == "ERASE" else 0.0
+        self.set_terminal_voltage("ERASE_PROG", erase_prog_voltage)
+        self.logger.info(f"ERASE_PROG: {erase_prog_voltage}V ({mode} mode)")
+        
+        # PROG_OUT: Configure based on mode (set last after all other channels)
+        prog_out_cfg = self.get_terminal_config("PROG_OUT")
+        if self.prog_out_mode == "voltage":
+            # Voltage mode: VCC with series resistor enabled
+            iv.set_series_resistor(prog_out_cfg.channel, True)
+            self.set_terminal_voltage("PROG_OUT", self.vcc)
+            self.logger.info(f"PROG_OUT: {self.vcc}V with series resistor enabled (voltage mode)")
+        else:
+            # Current mode: +1µA current source with 1V compliance
+            # Note: set_current() negates the value, so we pass -1µA to get +1µA reading
+            iv.set_series_resistor(prog_out_cfg.channel, False)
+            iv.set_current(prog_out_cfg.channel, -1e-6, compliance=1.0)
+            self.logger.info(f"PROG_OUT: +1µA current source with 1V compliance (current mode)")
     
     def _configure_counter(self) -> None:
         """
         Configure the counter for time interval measurement (called once during initialization).
         
         Measures time from WR_ENB going low (CH1) to PROG_OUT going low (CH2).
-        Both channels use VCC/2 as threshold and falling edge (NEG slope).
+        Both channels use VDD/10 as threshold and falling edge (NEG slope).
         """
         self.logger.info("-" * 40)
         self.logger.info("Configuring counter for time interval measurement")
@@ -266,8 +307,9 @@ class ProgrammerExperiment(ExperimentRunner):
         counter = self._get_instrument(InstrumentType.CT53230A)
         cfg = PROGRAMMER_COUNTER_CONFIG["time_interval"]
         
-        # Threshold is VCC/2
-        threshold = self.vcc / 100.0
+        # Trigger levels: CH1 (WR_ENB) = VCC/2, CH2 (PROG_OUT) = 0.5V
+        ch1_threshold = self.vcc / 2.0  # WR_ENB from PPG
+        ch2_threshold = 0.5  # PROG_OUT
         
         # Configure for time interval measurement
         counter.configure_time_interval(
@@ -283,9 +325,9 @@ class ProgrammerExperiment(ExperimentRunner):
         counter.set_impedance(cfg["start_channel"], cfg["impedance"])
         counter.set_impedance(cfg["stop_channel"], cfg["impedance"])
         
-        # Set trigger levels to VCC/2
-        counter.set_trigger_level(cfg["start_channel"], threshold)
-        counter.set_trigger_level(cfg["stop_channel"], threshold)
+        # Set trigger levels: CH1 = VCC/2, CH2 = 0.5V
+        counter.set_trigger_level(cfg["start_channel"], ch1_threshold)
+        counter.set_trigger_level(cfg["stop_channel"], ch2_threshold)
         
         # Set trigger slopes to falling edge (NEG) for both channels
         # WR_ENB goes low (start event), PROG_OUT goes low (stop event)
@@ -293,7 +335,7 @@ class ProgrammerExperiment(ExperimentRunner):
         counter.set_slope(cfg["stop_channel"], "NEG")
         
         self.logger.info(f"Counter: Time interval CH{cfg['start_channel']} -> CH{cfg['stop_channel']}")
-        self.logger.info(f"Threshold: {threshold}V (VCC/2), falling edge trigger")
+        self.logger.info(f"Trigger levels: CH1={ch1_threshold}V (VCC/2), CH2={ch2_threshold}V, falling edge")
     
     # ========================================================================
     # Current Setting (only thing that changes between measurements)
@@ -345,6 +387,31 @@ class ProgrammerExperiment(ExperimentRunner):
         self.logger.info(f"ICELLMEAS {label}: {current} A")
         return current
     
+    def measure_irefp_voltage(self) -> float:
+        """
+        Perform spot voltage measurement on IREFP.
+        
+        Returns:
+            Measured voltage in Volts
+        """
+        iv = self._get_instrument(InstrumentType.IV5270B)
+        cfg = self.get_terminal_config("IREFP")
+        
+        # Set measurement mode to spot measurement
+        iv.set_measurement_mode(1, [cfg.channel])
+        iv.execute_measurement()
+        data = iv.read_data()
+        
+        try:
+            # Parse voltage from response
+            voltage = float(data.split("V")[1].split(",")[0].strip())
+        except (IndexError, ValueError):
+            voltage = 0.0
+            self.logger.warning(f"Could not parse IREFP voltage: {data}")
+        
+        self.logger.info(f"VREFP: {voltage} V")
+        return voltage
+    
     def trigger_wr_enb(self) -> None:
         """
         Trigger WR_ENB pulse.
@@ -359,17 +426,29 @@ class ProgrammerExperiment(ExperimentRunner):
         if not self.test_mode:
             time.sleep(0.002)  # 2ms to ensure pulse completes
     
-    def measure_time_interval(self) -> float:
+    def initiate_time_interval(self) -> None:
         """
-        Read time interval from counter.
+        Initiate time interval measurement on the counter.
+        
+        This should be called BEFORE triggering WR_ENB.
+        Counter will wait for start event (WR_ENB falling edge).
+        """
+        counter = self._get_instrument(InstrumentType.CT53230A)
+        counter.initiate()
+        self.logger.info("Counter measurement initiated (waiting for trigger)")
+    
+    def fetch_time_interval(self) -> float:
+        """
+        Fetch time interval measurement from counter.
+        
+        This should be called AFTER triggering WR_ENB.
+        Returns the measured time from WR_ENB low to PROG_OUT low.
         
         Returns:
             Time interval in seconds (WR_ENB low to PROG_OUT low)
         """
         counter = self._get_instrument(InstrumentType.CT53230A)
-        cfg = PROGRAMMER_COUNTER_CONFIG["time_interval"]
-        
-        interval = counter.read_measurement()
+        interval = counter.fetch()
         
         self.logger.info(f"Time interval (pulse width): {interval*1e6:.3f} µs")
         return interval
@@ -416,13 +495,15 @@ class ProgrammerExperiment(ExperimentRunner):
         self._csv_writer_latest = csv.writer(self._csv_file_latest)
         
         # Define CSV headers
+        # Mode: ERASE or PROGRAM
         # Current sources: IREFP, PROG_IN
-        # Voltage sources: VDD, VCC, PROG_OUT, V_ICELLMEAS
-        # Measurements: ICELLMEAS_START, ICELLMEAS_FINAL, PULSE_WIDTH
+        # Voltage sources: VDD, VCC, PROG_OUT, V_ICELLMEAS, ERASE_PROG
+        # Measurements: VREFP, ICELLMEAS_START, ICELLMEAS_FINAL, PULSE_WIDTH
         headers = [
+            "MODE",  # ERASE or PROGRAM
             "IREFP", "PROG_IN",  # Current sources
-            "VDD", "VCC", "PROG_OUT", "V_ICELLMEAS",  # Voltage sources
-            "ICELLMEAS_START", "ICELLMEAS_FINAL", "PULSE_WIDTH"  # Measurements
+            "VDD", "VCC", "PROG_OUT", "V_ICELLMEAS", "ERASE_PROG",  # Voltage sources
+            "VREFP", "ICELLMEAS_START", "ICELLMEAS_FINAL", "PULSE_WIDTH"  # Measurements
         ]
         
         # Write header row
@@ -432,15 +513,17 @@ class ProgrammerExperiment(ExperimentRunner):
         self._csv_initialized = True
         self.logger.info(f"CSV output initialized: {csv_filename}")
     
-    def _write_measurement_row(self, irefp: float, prog_in: float,
-                               icellmeas_start: float, icellmeas_final: float,
+    def _write_measurement_row(self, mode: str, irefp: float, prog_in: float,
+                               vrefp: float, icellmeas_start: float, icellmeas_final: float,
                                pulse_width: float) -> None:
         """
         Write a single measurement row to CSV.
         
         Args:
+            mode: "ERASE" or "PROGRAM"
             irefp: IREFP current value in Amps
             prog_in: PROG_IN current value in Amps
+            vrefp: IREFP voltage measurement in Volts
             icellmeas_start: ICELLMEAS current before pulse in Amps
             icellmeas_final: ICELLMEAS current after pulse in Amps
             pulse_width: Pulse width measured by counter in seconds
@@ -451,15 +534,19 @@ class ProgrammerExperiment(ExperimentRunner):
         # Calculate voltage values
         prog_out_voltage = self.vcc
         icellmeas_voltage = self.vdd / 2.0
+        erase_prog_voltage = self.vcc if mode == "ERASE" else 0.0
         
         # Build row data
         row = [
+            mode,  # MODE
             irefp,  # IREFP
             prog_in,  # PROG_IN
             self.vdd,  # VDD
             self.vcc,  # VCC
             prog_out_voltage,  # PROG_OUT
             icellmeas_voltage,  # V_ICELLMEAS
+            erase_prog_voltage,  # ERASE_PROG
+            vrefp,  # VREFP
             icellmeas_start,  # ICELLMEAS_START
             icellmeas_final,  # ICELLMEAS_FINAL
             pulse_width,  # PULSE_WIDTH
@@ -541,7 +628,8 @@ class ProgrammerExperiment(ExperimentRunner):
             self.irefp_values = [0.0]
             self.logger.warning("No IREFP values set, using [0.0]")
         
-        total_measurements = len(self.irefp_values) * len(self.prog_in_values)
+        # Total measurements = 2 modes * IREFP values * PROG_IN values
+        total_measurements = 2 * len(self.irefp_values) * len(self.prog_in_values)
         measurement_num = 0
         
         # ====================================================================
@@ -554,76 +642,111 @@ class ProgrammerExperiment(ExperimentRunner):
         
         # ====================================================================
         # MEASUREMENT LOOP
-        # Only current levels change between measurements
+        # Run for both ERASE and PROGRAM modes
+        # Only current levels and ERASE_PROG voltage change between measurements
         # ====================================================================
         self.logger.info("=" * 60)
         self.logger.info("BEGINNING MEASUREMENT LOOP")
         self.logger.info("=" * 60)
         
-        for irefp in self.irefp_values:
-            for prog_in in self.prog_in_values:
-                measurement_num += 1
-                self.logger.info("-" * 40)
-                self.logger.info(f"[{measurement_num}/{total_measurements}] "
-                               f"IREFP={irefp*1e9:.1f}nA, PROG_IN={prog_in*1e9:.1f}nA")
+        for mode in ["ERASE", "PROGRAM"]:
+            self.logger.info("=" * 60)
+            self.logger.info(f"MODE: {mode}")
+            self.logger.info("=" * 60)
+            
+            # Set ERASE_PROG voltage for current mode
+            erase_prog_voltage = self.vcc if mode == "ERASE" else 0.0
+            self.set_terminal_voltage("ERASE_PROG", erase_prog_voltage)
+            self.logger.info(f"ERASE_PROG set to {erase_prog_voltage}V ({mode} mode)")
+            
+            for irefp in self.irefp_values:
+                # Set IREFP current level
+                self.set_terminal_current("IREFP", irefp)
                 
-                # Set current levels (ONLY thing that changes)
-                self._set_currents(irefp, prog_in)
-                
-                # Allow settling time
+                # Allow settling time for IREFP
                 if not self.test_mode:
                     time.sleep(0.01)
                 
-                # Starting ICELLMEAS measurement
-                icellmeas_start = self.measure_icellmeas_current("START")
+                # Measure VREFP (only when IREFP changes)
+                vrefp = self.measure_irefp_voltage()
                 
-                # Trigger PPG
-                self.trigger_wr_enb()
+                # Check VREFP is within safe range (0.5V to 1.5V)
+                if not self.test_mode:
+                    if vrefp < 0.5 or vrefp > 1.5:
+                        self.logger.warning(f"WARNING: VREFP out of safe range: {vrefp}V (expected 0.5V to 1.5V)")
+                        self.logger.warning(f"IREFP setting: {irefp*1e9:.1f}nA")
                 
-                # Read counter for time interval
-                pulse_width = self.measure_time_interval()
-                                
-                # Final ICELLMEAS measurement
-                icellmeas_final = self.measure_icellmeas_current("FINAL")
-                
-                # Prepare values for CSV (use dummy data in test mode)
-                csv_icellmeas_start = icellmeas_start
-                csv_icellmeas_final = icellmeas_final
-                csv_pulse_width = pulse_width
-                
-                if self.test_mode:
-                    # Use dummy values for CSV measurements, but keep correct current settings
-                    csv_icellmeas_start = 1e-12  # Dummy measurement
-                    csv_icellmeas_final = 1e-12  # Dummy measurement
-                    csv_pulse_width = 1e-6  # Dummy pulse width (1 µs)
-                
-                # Write to CSV
-                self._write_measurement_row(
-                    irefp=irefp,
-                    prog_in=prog_in,
-                    icellmeas_start=csv_icellmeas_start,
-                    icellmeas_final=csv_icellmeas_final,
-                    pulse_width=csv_pulse_width
-                )
-                
-                # Check for errors after first measurement (first set of conditions)
-                if measurement_num == 1:
-                    self.logger.info("Checking for errors after first measurement...")
-                    errors = self.check_all_instrument_errors()
-                    self.report_and_exit_on_errors(errors)
-                
-                # Record measurement
-                measurement = {
-                    "IREFP": irefp,
-                    "PROG_IN": prog_in,
-                    "ICELLMEAS_START": icellmeas_start,
-                    "ICELLMEAS_FINAL": icellmeas_final,
-                    "PULSE_WIDTH": pulse_width,
-                }
-                results["measurements"].append(measurement)
-                
-                self.logger.info(f"Results: Start={icellmeas_start}A, "
-                               f"Final={icellmeas_final}A, Width={pulse_width*1e6:.3f}µs")
+                for prog_in in self.prog_in_values:
+                    measurement_num += 1
+                    self.logger.info("-" * 40)
+                    self.logger.info(f"[{measurement_num}/{total_measurements}] {mode}: "
+                                   f"IREFP={irefp*1e9:.1f}nA, PROG_IN={prog_in*1e9:.1f}nA")
+                    
+                    # Set PROG_IN current level
+                    self.set_terminal_current("PROG_IN", prog_in)
+                    
+                    # Allow settling time for PROG_IN
+                    if not self.test_mode:
+                        time.sleep(0.01)
+                    
+                    # Starting ICELLMEAS measurement
+                    icellmeas_start = self.measure_icellmeas_current("START")
+
+                    # Initiate counter measurement (arms counter to wait for trigger)
+                    self.initiate_time_interval()
+                    
+                    # Trigger PPG
+                    self.trigger_wr_enb()
+                    
+                    # Fetch counter measurement result
+                    pulse_width = self.fetch_time_interval()
+
+                    # Final ICELLMEAS measurement
+                    icellmeas_final = self.measure_icellmeas_current("FINAL")
+                    
+                    # Prepare values for CSV (use dummy data in test mode)
+                    csv_vrefp = vrefp
+                    csv_icellmeas_start = icellmeas_start
+                    csv_icellmeas_final = icellmeas_final
+                    csv_pulse_width = pulse_width
+                    
+                    if self.test_mode:
+                        # Use dummy values for CSV measurements, but keep correct current settings
+                        csv_vrefp = 1.0  # Dummy voltage
+                        csv_icellmeas_start = 1e-12  # Dummy measurement
+                        csv_icellmeas_final = 1e-12  # Dummy measurement
+                        csv_pulse_width = 1e-6  # Dummy pulse width (1 µs)
+                    
+                    # Write to CSV
+                    self._write_measurement_row(
+                        mode=mode,
+                        irefp=irefp,
+                        prog_in=prog_in,
+                        vrefp=csv_vrefp,
+                        icellmeas_start=csv_icellmeas_start,
+                        icellmeas_final=csv_icellmeas_final,
+                        pulse_width=csv_pulse_width
+                    )
+                    
+                    # Check for errors after first measurement (first set of conditions)
+                    if measurement_num == 1:
+                        self.logger.info("Checking for errors after first measurement...")
+                        errors = self.check_all_instrument_errors()
+                        self.report_and_exit_on_errors(errors)
+                    
+                    # Record measurement
+                    measurement = {
+                        "MODE": mode,
+                        "IREFP": irefp,
+                        "PROG_IN": prog_in,
+                        "ICELLMEAS_START": icellmeas_start,
+                        "ICELLMEAS_FINAL": icellmeas_final,
+                        "PULSE_WIDTH": pulse_width,
+                    }
+                    results["measurements"].append(measurement)
+                    
+                    self.logger.info(f"Results: Start={icellmeas_start}A, "
+                                   f"Final={icellmeas_final}A, Width={pulse_width*1e6:.3f}µs")
         
         self.logger.info("=" * 60)
         self.logger.info("MEASUREMENT LOOP COMPLETE")
@@ -653,11 +776,12 @@ class ProgrammerExperiment(ExperimentRunner):
         except Exception as e:
             self.logger.error(f"Failed to idle PPG: {e}")
         
-        # Disable series resistor on PROG_OUT
+        # Disable series resistor on PROG_OUT (only if in voltage mode)
         try:
-            iv = self._get_instrument(InstrumentType.IV5270B)
-            prog_out_cfg = self.get_terminal_config("PROG_OUT")
-            iv.set_series_resistor(prog_out_cfg.channel, False)
+            if self.prog_out_mode == "voltage":
+                iv = self._get_instrument(InstrumentType.IV5270B)
+                prog_out_cfg = self.get_terminal_config("PROG_OUT")
+                iv.set_series_resistor(prog_out_cfg.channel, False)
         except Exception as e:
             self.logger.error(f"Failed to disable series resistor: {e}")
         
@@ -687,6 +811,13 @@ def main():
         default=SETTINGS.VCC,
         help=f'VCC voltage in volts (default: {SETTINGS.VCC})'
     )
+    parser.add_argument(
+        '--prog-out-mode',
+        type=str,
+        default='voltage',
+        choices=['voltage', 'current'],
+        help='PROG_OUT mode: voltage (VCC with series resistor) or current (+100nA with 1.8V limit)'
+    )
     args = parser.parse_args()
     
     # Run experiment
@@ -696,6 +827,7 @@ def main():
         test_mode=args.test,
         vdd=args.vdd,
         vcc=args.vcc,
+        prog_out_mode=args.prog_out_mode,
     ) as experiment:
         
         # Load IREFP values from settings file
@@ -721,12 +853,12 @@ def main():
         # Show first and last measurement
         first = results['measurements'][0]
         last = results['measurements'][-1]
-        print(f"\nFirst measurement:")
+        print(f"\nFirst measurement ({first['MODE']} mode):")
         print(f"  IREFP={first['IREFP']*1e9:.1f}nA, PROG_IN={first['PROG_IN']*1e9:.1f}nA")
         print(f"  Start={first['ICELLMEAS_START']}A, Final={first['ICELLMEAS_FINAL']}A")
         print(f"  Pulse width={first['PULSE_WIDTH']*1e6:.3f}µs")
         
-        print(f"\nLast measurement:")
+        print(f"\nLast measurement ({last['MODE']} mode):")
         print(f"  IREFP={last['IREFP']*1e9:.1f}nA, PROG_IN={last['PROG_IN']*1e9:.1f}nA")
         print(f"  Start={last['ICELLMEAS_START']}A, Final={last['ICELLMEAS_FINAL']}A")
         print(f"  Pulse width={last['PULSE_WIDTH']*1e6:.3f}µs")
