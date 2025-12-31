@@ -23,13 +23,18 @@ VDD = 1.8       # VDD voltage in volts
 VCC = 5.0       # VCC voltage in volts
 
 # Derived voltages (calculated from above)
-# PROG_OUT is set to VCC
+# PROG_OUT is configured as a current source (see PROG_OUT_CURRENT below)
 # ICELLMEAS is set to VDD/2
 
 # ============================================================================
 # 2. CURRENT LISTS
 # ============================================================================
 # Units: Amps (use scientific notation, e.g., 1e-6 = 1µA, 100e-9 = 100nA)
+
+# PROG_OUT current source (single value, not a list)
+# This is CH1 configured as a current source
+PROG_OUT_CURRENT = 150e-6      # 150 µA
+PROG_OUT_COMPLIANCE = 1.8    # 1.8 V compliance
 
 # IREFP current values (list of values to sweep through)
 IREFP_VALUES = [
@@ -88,21 +93,18 @@ PPG_WR_ENB = {
 }
 
 # ============================================================================
-# 4. COUNTER SETTINGS (Time Interval Measurement)
+# 4. COUNTER SETTINGS (Pulse Width Measurement)
 # ============================================================================
-# Counter measures time from WR_ENB going low to PROG_OUT going low.
-# CH1: WR_ENB from PPG (start event, falling edge)
-# CH2: PROG_OUT from SMU (stop event, falling edge)
+# Counter measures pulse width on CH1 (PROG_OUT falling to rising edge).
+# CH1: PROG_OUT from SMU (measures pulse width: falling edge to rising edge)
+# CH2: Not connected
 
 COUNTER_CONFIG = {
     # Channel assignment
-    "start_channel": 1,         # CH1 = WR_ENB (from PPG)
-    "stop_channel": 2,          # CH2 = PROG_OUT (from SMU)
-    
-    # Trigger settings
-    "threshold": "VCC/2",       # Use "VCC/2" to auto-calculate, or set explicit voltage
+    "channel": 1,               # CH1 = PROG_OUT (from SMU)
+    "threshold": 4.0,           # Threshold voltage in volts (default: 4V)
     "start_slope": "NEG",       # Falling edge on start (NEG = negative slope)
-    "stop_slope": "NEG",        # Falling edge on stop
+    "stop_slope": "POS",        # Rising edge on stop (POS = positive slope)
     
     # Input settings
     "coupling": "DC",           # DC coupling for logic signals
@@ -139,6 +141,9 @@ def get_settings():
         # Voltages
         "VDD": VDD,
         "VCC": VCC,
+        # Current sources
+        "PROG_OUT_CURRENT": PROG_OUT_CURRENT,
+        "PROG_OUT_COMPLIANCE": PROG_OUT_COMPLIANCE,
         # Current lists
         "IREFP_VALUES": IREFP_VALUES,
         "PROG_IN_VALUES": PROG_IN_VALUES,

@@ -10,10 +10,10 @@ based on the CSV specification and resource allocation rules.
 
 
 Resource Allocation Summary:
-    Synchronous Sweep Terminals (must be on same instrument - 5270B):
+    Spot Measurement Terminals (5270B):
         OUT1 (Pin 11), OUT2 (Pin 12), X1 (Pin 16), IMEAS (Pin 9) → 5270B HR SMUs (channels 1-4)
 
-    Fixed I terminals (6):
+    Fixed I terminals (8):
         TRIM1 (Pin 22), TRIM2 (Pin 24), F11 (Pin 23), F12 (Pin 21) → 5270B channels 5-8
         X2 (Pin 20), KGAIN1 (Pin 14), KGAIN2 (Pin 15), IREFP (Pin 10) → 4156B channels 1-4
 
@@ -26,21 +26,24 @@ Resource Allocation Summary:
     PPG terminal (1): ERASE_PROG (Pin 13)
         → 81104A Channel 1 (DC mode only - VCC or 0V, never triggered)
 
+    Unused pins connected to GNDU (8):
+        Pins 1, 2, 3, 4, 5, 6, 7, 8 → Connected to GNDU via unused instrument channels set to 0V
+
 Compliance Settings:
     - Voltage sources: 1mA compliance
-    - Current sources: 2V compliance (limits negative voltage)
+    - Current sources: 0.1V compliance for positive currents, 2V for non-positive
     - Current direction: "pulled" (positive = into IV meter)
 
 Enable Sequence:
     1. PPG (DC mode - set voltage but don't trigger)
     2. Voltage supplies (VDD, VCC via VSU)
     3. Fixed current supplies (KGAIN1/2, TRIM1/2, X2, IREFP, F11, F12)
-    4. Synchronous sweep (X1, IMEAS with OUT1/OUT2 current measurement)
+    4. Spot measurements (X1, IMEAS set to fixed values with OUT1/OUT2 current measurement)
 
-Synchronous Sweep:
-    - X1 and IMEAS are swept synchronously
-    - OUT1 and OUT2 have VDD applied, current measured during sweep
-    - All four (OUT1, OUT2, X1, IMEAS) must be on 5270B for sync operation
+Spot Measurements:
+    - X1 and IMEAS are set to fixed values (no sweeps)
+    - OUT1 and OUT2 have VDD applied, current measured once per configuration
+    - All measurements are spot measurements (single point, no sweeps)
 """
 
 from .resource_types import (
@@ -53,35 +56,35 @@ from .resource_types import (
 
 COMPUTE_TERMINALS = {
     # ------------------------------------
-    # Synchronous Sweep Terminals - All on 5270B HR SMUs for sync operation
+    # Spot Measurement Terminals - All on 5270B HR SMUs
     # ------------------------------------
     "OUT1": TerminalConfig(
         terminal="OUT1",
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=1,
-        description="Output 1 - 5270B HR SMU - sync sweep (apply VDD, measure I) (Pin 11)"
+        description="Output 1 - 5270B HR SMU - spot measurement (apply VDD, measure I) (Pin 11)"
     ),
     "OUT2": TerminalConfig(
         terminal="OUT2",
         measurement_type=MeasurementType.V,
         instrument=InstrumentType.IV5270B,
         channel=2,
-        description="Output 2 - 5270B HR SMU - sync sweep (apply VDD, measure I) (Pin 12)"
+        description="Output 2 - 5270B HR SMU - spot measurement (apply VDD, measure I) (Pin 12)"
     ),
     "X1": TerminalConfig(
         terminal="X1",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=3,
-        description="X1 current - 5270B HR SMU - sync sweep source (Pin 16)"
+        description="X1 current - 5270B HR SMU - fixed current source (Pin 16)"
     ),
     "IMEAS": TerminalConfig(
         terminal="IMEAS",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=4,
-        description="Measurement current - 5270B HR SMU - sync sweep source (Pin 9)"
+        description="Measurement current - 5270B HR SMU - fixed current source (Pin 9)"
     ),
     
     # ------------------------------------
@@ -106,14 +109,14 @@ COMPUTE_TERMINALS = {
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=7,
-        description="F11 current - 5270B MP SMU - fixed current sweep parameter (Pin 23)"
+        description="F11 current - 5270B MP SMU - fixed current parameter (Pin 23)"
     ),
     "F12": TerminalConfig(
         terminal="F12",
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=8,
-        description="F12 current - 5270B MP SMU - fixed current sweep parameter (Pin 21)"
+        description="F12 current - 5270B MP SMU - fixed current parameter (Pin 21)"
     ),
     
     # ------------------------------------
@@ -124,7 +127,7 @@ COMPUTE_TERMINALS = {
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV4156B,
         channel=1,
-        description="X2 current - 4156B SMU - fixed current sweep parameter (Pin 20)"
+        description="X2 current - 4156B SMU - fixed current parameter (Pin 20)"
     ),
     "KGAIN1": TerminalConfig(
         terminal="KGAIN1",
@@ -145,7 +148,7 @@ COMPUTE_TERMINALS = {
         measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV4156B,
         channel=4,
-        description="Reference current P - 4156B SMU - fixed current sweep parameter (Pin 10)"
+        description="Reference current P - 4156B SMU - fixed current parameter (Pin 10)"
     ),
     
     # ------------------------------------
@@ -195,7 +198,7 @@ COMPUTE_TERMINALS = {
 
 COMPUTE_CONFIG = ExperimentConfig(
     name="Compute",
-    description="Computation mode characterization with synchronous current sweep",
+    description="Computation mode characterization with spot current measurements",
     terminals=COMPUTE_TERMINALS,
     instruments_used=[
         InstrumentType.IV5270B,

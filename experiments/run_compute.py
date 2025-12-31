@@ -7,7 +7,7 @@ Top-level execution script for the Compute experiment.
 This script:
 - Imports instrument-level modules
 - Loads the Compute experiment configuration
-- Executes the measurement sequence with IMEAS sweeps relative to fixed X1 values
+- Executes spot measurements of OUT1 and OUT2 with fixed X1 and IMEAS values
 - Handles TEST_MODE for safe command logging
 
 Usage:
@@ -29,12 +29,12 @@ Experiment Flow:
        - Set all fixed currents (linked pairs get same value)
        - For each X1 fixed value:
          - Set X1 to fixed value
-         - Sweep IMEAS from (X1 - 20nA) to (X1 + 20nA) in 5nA steps
-         - Measure OUT1 and OUT2 current during sweep
+         - Set IMEAS to fixed value (same as X1)
+         - Measure OUT1 and OUT2 current (spot measurement, no sweep)
 
 Compliance Settings:
     - Voltage sources: 1mA compliance
-    - Current sources: 2V compliance
+    - Current sources: 0.1V compliance for positive currents, 2V for non-positive
     - Current direction: "pulled" (positive = into IV meter)
 """
 
@@ -52,7 +52,7 @@ from typing import Dict, List, Any, Tuple, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.base_experiment import ExperimentRunner
+from experiments.base_experiment import ExperimentRunner, CURRENT_SOURCE_COMPLIANCE
 from configs.compute import (
     COMPUTE_CONFIG,
     COMPUTE_TERMINALS,
@@ -85,10 +85,11 @@ class ComputeExperiment(ExperimentRunner):
     - PPG DC bias (VCC or 0V, never triggered)
     - VSU biasing on VDD, VCC
     - Fixed current supplies with user-specified combinations
-    - Fixed X1 values with IMEAS sweeps (X1-20nA to X1+20nA in 5nA steps)
-    - Current measurement on OUT1 and OUT2 during sweep
+    - Fixed X1 and IMEAS values with spot measurements
+    - Current measurement on OUT1 and OUT2 (single spot measurement, no sweeps)
     
     All currents are "pulled" (positive = into IV meter).
+    Positive currents use 0.1V compliance (they get negated when sent to instrument).
     """
     
     def __init__(self, test_mode: bool = False, vdd: float = None, 
@@ -125,7 +126,7 @@ class ComputeExperiment(ExperimentRunner):
             "F12": [],
         }
         
-        # X1 fixed current values (IMEAS will sweep relative to each X1 value)
+        # X1 fixed current values (IMEAS will be set to same value for spot measurements)
         self.x1_values: List[float] = []
         
         # Flag to track if initial setup has been done
@@ -156,7 +157,8 @@ class ComputeExperiment(ExperimentRunner):
         """
         Set the fixed X1 current values.
         
-        For each X1 value, IMEAS will sweep from (X1 - 20nA) to (X1 + 20nA) in 5nA steps.
+        For each X1 value, IMEAS will be set to the same value and a spot measurement
+        of OUT1 and OUT2 will be performed.
         
         Args:
             values: List of X1 current values in Amps
@@ -186,23 +188,58 @@ class ComputeExperiment(ExperimentRunner):
         iv5270b = self._get_instrument(InstrumentType.IV5270B)
         iv4156b = self._get_instrument(InstrumentType.IV4156B)
         
-        # Enable all 5270B channels used in this experiment
-        # Channels: 0 (VSS/GNDU - automatically enabled), 1 (OUT1), 2 (OUT2), 3 (X1), 4 (IMEAS), 5 (TRIM1), 6 (TRIM2), 7 (F11), 8 (F12)
-        # Note: Channel 0 is automatically enabled and will be filtered out from CN command
-        iv5270b.enable_channels([0, 1, 2, 3, 4, 5, 6, 7, 8])
-        channel_info = [
-            f"CH0 (VSS/GNDU)", f"CH1 (OUT1)", f"CH2 (OUT2)", f"CH3 (X1)", 
-            f"CH4 (IMEAS)", f"CH5 (TRIM1)", f"CH6 (TRIM2)", f"CH7 (F11)", f"CH8 (F12)"
-        ]
+        # Get all used channels from terminal configs
+        used_5270b_channels = set()
+        used_4156b_channels = set()
+        
+        for terminal_name, terminal_cfg in COMPUTE_TERMINALS.items():
+            if terminal_cfg.instrument == InstrumentType.IV5270B:
+                used_5270b_channels.add(terminal_cfg.channel)
+            elif terminal_cfg.instrument == InstrumentType.IV4156B:
+                used_4156b_channels.add(terminal_cfg.channel)
+        
+        # Enable all 5270B channels (1-8) - Channel 0 (GNDU) is automatically enabled
+        all_5270b_channels = list(range(1, 9))  # Channels 1-8
+        iv5270b.enable_channels(all_5270b_channels)
+        
+        # Set unused 5270B channels to 0V (connected to GNDU)
+        unused_5270b_channels = [ch for ch in all_5270b_channels if ch not in used_5270b_channels]
+        for ch in unused_5270b_channels:
+            iv5270b.set_voltage(ch, 0.0, compliance=0.001)  # 0V with 1mA compliance
+            self.logger.debug(f"5270B CH{ch}: Set to 0V (connected to GNDU)")
+        
+        channel_info = []
+        for ch in sorted(used_5270b_channels):
+            if ch == 0:
+                channel_info.append(f"CH0 (VSS/GNDU)")
+            else:
+                term_name = next((name for name, cfg in COMPUTE_TERMINALS.items() 
+                                if cfg.instrument == InstrumentType.IV5270B and cfg.channel == ch), f"CH{ch}")
+                channel_info.append(f"CH{ch} ({term_name})")
+        for ch in unused_5270b_channels:
+            channel_info.append(f"CH{ch} (GNDU)")
         self.logger.info(f"5270B: Enabled channels: {', '.join(channel_info)}")
         
-        # Enable all 4156B channels used in this experiment
-        # Channels: 1 (X2), 2 (KGAIN1), 3 (KGAIN2), 4 (IREFP), 21 (VDD VSU), 22 (VCC VSU)
-        iv4156b.enable_channels([1, 2, 3, 4, 21, 22])
-        channel_info = [
-            f"CH1 (X2)", f"CH2 (KGAIN1)", f"CH3 (KGAIN2)", f"CH4 (IREFP)", 
-            f"CH21 (VDD)", f"CH22 (VCC)"
-        ]
+        # Enable all 4156B SMU channels (1-4) and VSU channels (21-22)
+        all_4156b_channels = [1, 2, 3, 4, 21, 22]
+        iv4156b.enable_channels(all_4156b_channels)
+        
+        # Set unused 4156B channels to 0V (connected to GNDU)
+        unused_4156b_channels = [ch for ch in all_4156b_channels if ch not in used_4156b_channels]
+        for ch in unused_4156b_channels:
+            if ch <= 4:  # SMU channel
+                iv4156b.set_voltage(ch, 0.0, compliance=0.001)  # 0V with 1mA compliance
+                self.logger.debug(f"4156B CH{ch}: Set to 0V (connected to GNDU)")
+            # VSU channels (21-22) don't need to be set to 0V if unused
+        
+        channel_info = []
+        for ch in sorted(used_4156b_channels):
+            term_name = next((name for name, cfg in COMPUTE_TERMINALS.items() 
+                            if cfg.instrument == InstrumentType.IV4156B and cfg.channel == ch), f"CH{ch}")
+            channel_info.append(f"CH{ch} ({term_name})")
+        for ch in unused_4156b_channels:
+            if ch <= 4:  # Only log SMU channels
+                channel_info.append(f"CH{ch} (GNDU)")
         self.logger.info(f"4156B: Enabled channels: {', '.join(channel_info)}")
         
         # Note: Measurement mode (MM) is set right before each measurement, not during initialization
@@ -237,6 +274,29 @@ class ComputeExperiment(ExperimentRunner):
     # Step 3: Fixed Current Supply Setup
     # ========================================================================
     
+    def set_terminal_current(self, terminal: str, current: float,
+                            compliance: float = None) -> None:
+        """
+        Override set_terminal_current to use 0.1V compliance for positive currents.
+        
+        Positive currents get negated later when sent to the instrument, so we use
+        0.1V compliance for all positive currents as requested.
+        
+        Args:
+            terminal: Logical terminal name
+            current: Current to set in amps (positive = into meter)
+            compliance: Voltage compliance in volts (default: 0.1V for positive, 2V for non-positive)
+        """
+        # For positive currents (which get negated later), use 0.1V compliance
+        if compliance is None:
+            if current > 0:
+                compliance = 0.1  # 0.1V for positive currents
+            else:
+                compliance = CURRENT_SOURCE_COMPLIANCE  # 2V default for non-positive
+        
+        # Call parent method with the determined compliance
+        super().set_terminal_current(terminal, current, compliance)
+    
     def setup_fixed_currents(self, current_values: Dict[str, float]) -> None:
         """
         Set all fixed current supplies to specified values.
@@ -264,12 +324,12 @@ class ComputeExperiment(ExperimentRunner):
                 self.logger.debug(f"{param_name}: {value}A -> {param_name} (CH{cfg.channel})")
     
     # ========================================================================
-    # Step 4: Synchronous Sweep
+    # Step 4: Output Setup and Spot Measurement
     # ========================================================================
     
     def setup_sync_sweep_outputs(self) -> None:
         """
-        Setup OUT1 and OUT2 voltages for current measurement during sync sweep.
+        Setup OUT1 and OUT2 voltages for current measurement.
         
         OUT1 and OUT2 are set to VDD voltage. Called once at start.
         This only sets voltage values, channels are already enabled.
@@ -280,27 +340,25 @@ class ComputeExperiment(ExperimentRunner):
         
         self.logger.info(f"OUT1, OUT2: Set to VDD={self.vdd}V")
     
-    def execute_imeas_sweep(self, x1_value: float) -> Dict[str, Any]:
+    def execute_spot_measurement(self, x1_value: float, imeas_value: float = None) -> Dict[str, Any]:
         """
-        Execute IMEAS sweep relative to a fixed X1 value using instrument sweep command.
+        Execute spot measurement of OUT1 and OUT2 with fixed X1 and IMEAS values.
         
-        X1 is set to a fixed value. IMEAS sweeps from (X1 - 20nA) to (X1 + 20nA) 
-        in steps of 10nA (5 points total), while measuring current on OUT1 and OUT2.
+        X1 and IMEAS are set to fixed values, then OUT1 and OUT2 currents are measured once.
+        No sweeps are performed - only a single spot measurement.
         
         Args:
             x1_value: Fixed X1 current value in Amps
-        
-        Note: This method uses the instrument's built-in sweep capability (WI command)
-        instead of manual loops for better performance and accuracy.
+            imeas_value: Fixed IMEAS current value in Amps (default: same as x1_value)
         
         Returns:
-            Dictionary with sweep results including:
+            Dictionary with spot measurement results including:
             - x1_value: The fixed X1 value used
-            - sweep_points: List of (X1_current, IMEAS_current) tuples
-            - OUT1_currents: List of measured currents
-            - OUT2_currents: List of measured currents
+            - imeas_value: The fixed IMEAS value used
+            - OUT1_current: Measured OUT1 current
+            - OUT2_current: Measured OUT2 current
         """
-        # Get 5270B instrument (all sweep terminals are on it)
+        # Get 5270B instrument (all terminals are on it)
         inst = self._get_instrument(InstrumentType.IV5270B)
         
         # Get terminal configs (for channel numbers and terminal names)
@@ -309,51 +367,41 @@ class ComputeExperiment(ExperimentRunner):
         out1_cfg = self.get_terminal_config("OUT1")
         out2_cfg = self.get_terminal_config("OUT2")
         
-        # Define IMEAS sweep: from (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET)
-        # Sweep settings are loaded from configs/compute_settings.py
-        imeas_start = x1_value - SETTINGS.IMEAS_RANGE_OFFSET
-        imeas_stop = x1_value + SETTINGS.IMEAS_RANGE_OFFSET
-        num_steps = SETTINGS.IMEAS_NUM_STEPS
+        # If IMEAS value not specified, use same as X1
+        if imeas_value is None:
+            imeas_value = x1_value
         
-        self.logger.info(f"Executing IMEAS ({imeas_cfg.terminal}) sweep for X1 ({x1_cfg.terminal}) = {x1_value}A...")
-        self.logger.info(f"IMEAS ({imeas_cfg.terminal}) sweep: {imeas_start}A to {imeas_stop}A, {num_steps} steps")
+        self.logger.info(f"Executing spot measurement: X1 ({x1_cfg.terminal}) = {x1_value}A, IMEAS ({imeas_cfg.terminal}) = {imeas_value}A")
         
-        # Set X1 to fixed value (only set once, doesn't change during sweep)
-        inst.set_current(x1_cfg.channel, x1_value, compliance=2.0)
-        self.logger.debug(f"X1 ({x1_cfg.terminal}, CH{x1_cfg.channel}): Set to {x1_value}A")
+        # Set X1 to fixed value (use 0.1V compliance for positive currents)
+        x1_compliance = 0.1 if x1_value > 0 else 2.0
+        inst.set_current(x1_cfg.channel, x1_value, compliance=x1_compliance)
+        self.logger.debug(f"X1 ({x1_cfg.terminal}, CH{x1_cfg.channel}): Set to {x1_value}A (Vcomp={x1_compliance}V)")
         
-        # Set measurement mode to sweep measurement (mode 2)
-        # Measure OUT1 and OUT2 currents during sweep
-        inst.set_measurement_mode(2, [out1_cfg.channel, out2_cfg.channel])
-        self.logger.debug(f"Measurement mode: Sweep on OUT1 ({out1_cfg.terminal}, CH{out1_cfg.channel}) and OUT2 ({out2_cfg.terminal}, CH{out2_cfg.channel})")
+        # Set IMEAS to fixed value (use 0.1V compliance for positive currents)
+        imeas_compliance = 0.1 if imeas_value > 0 else 2.0
+        inst.set_current(imeas_cfg.channel, imeas_value, compliance=imeas_compliance)
+        self.logger.debug(f"IMEAS ({imeas_cfg.terminal}, CH{imeas_cfg.channel}): Set to {imeas_value}A (Vcomp={imeas_compliance}V)")
         
-        # Configure IMEAS current sweep using WI command
-        inst.configure_current_sweep(
-            channel=imeas_cfg.channel,
-            start=imeas_start,
-            stop=imeas_stop,
-            steps=num_steps,
-            compliance=2.0,
-            mode=1,  # Linear sweep
-            i_range=0  # Auto range
-        )
-        self.logger.debug(f"IMEAS ({imeas_cfg.terminal}, CH{imeas_cfg.channel}): Configured current sweep")
+        # Set measurement mode to spot measurement (mode 1)
+        # Measure OUT1 and OUT2 currents
+        inst.set_measurement_mode(1, [out1_cfg.channel, out2_cfg.channel])
+        self.logger.debug(f"Measurement mode: Spot measurement on OUT1 ({out1_cfg.terminal}, CH{out1_cfg.channel}) and OUT2 ({out2_cfg.terminal}, CH{out2_cfg.channel})")
         
-        # Execute sweep measurement
+        # Execute spot measurement
         inst.execute_measurement()
         
-        # Read all sweep data
+        # Read measurement data
         data = inst.read_data()
-        print(f"Raw instrument data after XE: {data}")  # Print raw data string
+        self.logger.debug(f"Raw instrument data: {data}")
         
-        # Parse sweep data
-        # The data format for sweep measurements is typically comma-separated values
-        # Format: I1_1,I2_1,I1_2,I2_2,... (OUT1 and OUT2 currents for each sweep point)
+        # Parse spot measurement data
+        # Format: I1,I2 (OUT1 and OUT2 currents)
         results = {
             "x1_value": x1_value,
-            "sweep_points": [],
-            "OUT1_currents": [],
-            "OUT2_currents": [],
+            "imeas_value": imeas_value,
+            "OUT1_current": 0.0,
+            "OUT2_current": 0.0,
         }
         
         try:
@@ -364,63 +412,38 @@ class ComputeExperiment(ExperimentRunner):
             def remove_3letter_prefix(value: str) -> str:
                 """Remove 3-letter alphabetic prefix from value if present."""
                 value = value.strip()
-                # Check if value starts with exactly 3 letters (case-insensitive)
-                # followed by a number, decimal point, or sign
                 if len(value) >= 3 and value[:3].isalpha():
-                    # Check if the 4th character (if exists) is a digit, decimal, or sign
                     if len(value) == 3 or value[3] in '+-.0123456789':
-                        return value[3:]  # Remove first 3 characters
+                        return value[3:]
                 return value
             
             # Clean all parts by removing 3-letter prefixes
             cleaned_parts = [remove_3letter_prefix(part) for part in parts]
             
-            # For each sweep point, we expect 2 values (OUT1 and OUT2 currents)
-            num_points = len(cleaned_parts) // 2
-            if num_points == 0:
-                num_points = 1  # Fallback if parsing fails
-            
-            # Generate IMEAS values for this sweep
-            imeas_points = []
-            for i in range(num_steps):
-                imeas_val = imeas_start + (imeas_stop - imeas_start) * i / (num_steps - 1) if num_steps > 1 else imeas_start
-                imeas_points.append(imeas_val)
-            
-            # Parse current values
-            for i in range(min(num_points, num_steps)):
-                if i * 2 + 1 < len(cleaned_parts):
+            # Parse OUT1 and OUT2 currents
+            if len(cleaned_parts) >= 2:
+                try:
+                    results["OUT1_current"] = float(cleaned_parts[0])
+                    results["OUT2_current"] = float(cleaned_parts[1])
+                except (ValueError, IndexError):
+                    # Try alternative parsing
                     try:
-                        out1_current = float(cleaned_parts[i * 2])
-                        out2_current = float(cleaned_parts[i * 2 + 1])
+                        out1_str = cleaned_parts[0].replace("I", "").replace("A", "")
+                        out2_str = cleaned_parts[1].replace("I", "").replace("A", "")
+                        results["OUT1_current"] = float(out1_str)
+                        results["OUT2_current"] = float(out2_str)
                     except (ValueError, IndexError):
-                        # Try alternative parsing if format is different
-                        try:
-                            # Remove any non-numeric prefixes/suffixes
-                            out1_str = cleaned_parts[i * 2].replace("I", "").replace("A", "")
-                            out2_str = cleaned_parts[i * 2 + 1].replace("I", "").replace("A", "")
-                            out1_current = float(out1_str)
-                            out2_current = float(out2_str)
-                        except (ValueError, IndexError):
-                            out1_current = 0.0
-                            out2_current = 0.0
-                else:
-                    out1_current = 0.0
-                    out2_current = 0.0
-                
-                imeas_val = imeas_points[i] if i < len(imeas_points) else imeas_start
-                results["sweep_points"].append((x1_value, imeas_val))
-                results["OUT1_currents"].append(out1_current)
-                results["OUT2_currents"].append(out2_current)
+                        self.logger.warning(f"Error parsing spot measurement data: {data}")
+            elif len(cleaned_parts) == 1:
+                # Only one value - assume it's OUT1, set OUT2 to 0
+                try:
+                    results["OUT1_current"] = float(cleaned_parts[0])
+                except ValueError:
+                    self.logger.warning(f"Error parsing spot measurement data: {data}")
         except (IndexError, ValueError) as e:
-            self.logger.warning(f"Error parsing sweep data: {e}, data={data}")
-            # Fallback: create empty results
-            for i in range(num_steps):
-                imeas_val = imeas_start + (imeas_stop - imeas_start) * i / (num_steps - 1) if num_steps > 1 else imeas_start
-                results["sweep_points"].append((x1_value, imeas_val))
-                results["OUT1_currents"].append(0.0)
-                results["OUT2_currents"].append(0.0)
+            self.logger.warning(f"Error parsing spot measurement data: {e}, data={data}")
         
-        self.logger.info(f"IMEAS ({imeas_cfg.terminal}) sweep complete: {len(results['sweep_points'])} points")
+        self.logger.info(f"Spot measurement complete: OUT1={results['OUT1_current']}A, OUT2={results['OUT2_current']}A")
         
         return results
     
@@ -670,9 +693,9 @@ class ComputeExperiment(ExperimentRunner):
                 "VCC": self.vcc,
             },
             "ppg_states": COMPUTE_PPG_STATE_ORDER,
-            "sweep_config": {
+            "measurement_config": {
                 "X1_values": self.x1_values,
-                "IMEAS_sweep": "X1-20nA to X1+20nA in 5nA steps",
+                "measurement_type": "spot_measurement",
             },
             "measurements": {
                 "ERASE": [],    # Measurements at VCC (ERASE state)
@@ -736,62 +759,50 @@ class ComputeExperiment(ExperimentRunner):
                 # Set fixed current values (only current values change)
                 self.setup_fixed_currents(combo)
                 
-                # For each X1 value, execute IMEAS sweep
+                # For each X1 value, execute spot measurement
                 for x1_idx, x1_value in enumerate(self.x1_values):
                     measurement_num += 1
                     self.logger.info("-" * 40)
                     self.logger.info(f"[{measurement_num}/{total_measurements}] "
                                    f"X1 = {x1_value}A ({x1_idx+1}/{len(self.x1_values)})")
                     
-                    # Execute IMEAS sweep for this X1 value
-                    sweep_results = self.execute_imeas_sweep(x1_value)
+                    # Execute spot measurement for this X1 value (IMEAS set to same as X1)
+                    spot_results = self.execute_spot_measurement(x1_value, imeas_value=x1_value)
                     
                     # Get PPG voltage for this state
                     ppg_voltage = self.get_ppg_state_voltage(ppg_state)
                     
-                    # Write each sweep point to CSV
-                    # sweep_results contains:
-                    # - sweep_points: List of (X1_current, IMEAS_current) tuples
-                    # - OUT1_currents: List of measured OUT1 currents
-                    # - OUT2_currents: List of measured OUT2 currents
-                    for sweep_idx, (x1_actual, imeas_actual) in enumerate(sweep_results["sweep_points"]):
-                        # Get measured currents for this sweep point
-                        if sweep_idx < len(sweep_results["OUT1_currents"]):
-                            out1_current = sweep_results["OUT1_currents"][sweep_idx]
-                        else:
-                            out1_current = 0.0
-                        
-                        if sweep_idx < len(sweep_results["OUT2_currents"]):
-                            out2_current = sweep_results["OUT2_currents"][sweep_idx]
-                        else:
-                            out2_current = 0.0
-                        
-                        # In test mode, use dummy measurement data but keep correct voltage/current settings
-                        if self.test_mode:
-                            # Use small dummy values for measurements, but keep actual voltage/current settings
-                            out1_current = 1e-12  # Dummy measurement
-                            out2_current = 1e-12  # Dummy measurement
-                        
-                        # Write row to CSV
-                        self._write_measurement_row(
-                            ppg_state=ppg_state,
-                            ppg_voltage=ppg_voltage,
-                            fixed_currents=combo,
-                            x1_value=x1_actual,
-                            imeas_value=imeas_actual,
-                            out1_current=out1_current,
-                            out2_current=out2_current
-                        )
+                    # Get measured currents from spot measurement
+                    out1_current = spot_results["OUT1_current"]
+                    out2_current = spot_results["OUT2_current"]
+                    
+                    # In test mode, use dummy measurement data but keep correct voltage/current settings
+                    if self.test_mode:
+                        # Use small dummy values for measurements, but keep actual voltage/current settings
+                        out1_current = 1e-12  # Dummy measurement
+                        out2_current = 1e-12  # Dummy measurement
+                    
+                    # Write row to CSV
+                    self._write_measurement_row(
+                        ppg_state=ppg_state,
+                        ppg_voltage=ppg_voltage,
+                        fixed_currents=combo,
+                        x1_value=spot_results["x1_value"],
+                        imeas_value=spot_results["imeas_value"],
+                        out1_current=out1_current,
+                        out2_current=out2_current
+                    )
                     
                     # Store results
                     measurement = {
                         "combination_index": i,
                         "x1_index": x1_idx,
                         "x1_value": x1_value,
+                        "imeas_value": spot_results["imeas_value"],
                         "ppg_state": ppg_state,
                         "ppg_voltage": ppg_voltage,
                         "fixed_currents": combo,
-                        "sweep_results": sweep_results,
+                        "spot_results": spot_results,
                     }
                     results["measurements"][ppg_state].append(measurement)
                     
@@ -805,6 +816,7 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("Compute experiment complete")
         self.logger.info(f"Total measurements: {measurement_num} "
                         f"({len(combinations)} combinations x {len(self.x1_values)} X1 values x {len(COMPUTE_PPG_STATE_ORDER)} PPG states)")
+        self.logger.info("Note: Using spot measurements (no sweeps)")
         self.logger.info("=" * 60)
         
         # Calculate and log total elapsed time
@@ -941,12 +953,12 @@ def main():
     
     if results['measurements']['ERASE']:
         first = results['measurements']['ERASE'][0]
-        if 'sweep_points' in first['sweep_results']:
-            # IMEAS sweep structure
-            num_points = len(first['sweep_results']['sweep_points'])
-            x1_val = first['sweep_results'].get('x1_value', 'N/A')
-            print(f"IMEAS sweep: {num_points} points per X1 value")
-            print(f"  (X1 = {x1_val}A, IMEAS sweeps from X1-20nA to X1+20nA in 5nA steps)")
+        if 'spot_results' in first:
+            # Spot measurement structure
+            x1_val = first['spot_results'].get('x1_value', 'N/A')
+            imeas_val = first['spot_results'].get('imeas_value', 'N/A')
+            print(f"Measurement type: Spot measurement")
+            print(f"  (X1 = {x1_val}A, IMEAS = {imeas_val}A)")
     print("=" * 60)
 
 

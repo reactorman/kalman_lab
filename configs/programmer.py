@@ -8,35 +8,39 @@ This experiment characterizes programming timing by measuring the delay
 from WR_ENB going low until PROG_OUT goes low.
 
 Resource Allocation Summary:
-    V terminals (5): PROG_OUT (Pin 6, with series resistor), ICELLMEAS (Pin 5),
-                     VDD (Pin 19, 1.8V), VCC (Pin 17, 5V), ERASE_PROG (Pin 13, 5V or 0V)
-        → 5270B HR SMUs (channels 1-2, 5-7)
+    V terminals (4): ICELLMEAS (Pin 5), VDD (Pin 19, 1.8V), VCC (Pin 17, 5V), ERASE_PROG (Pin 13, 5V or 0V)
+        → 5270B HR SMUs (channels 2, 5-7)
     
-    I terminals (2): IREFP (Pin 10), PROG_IN (Pin 7)
-        → 5270B HR SMUs (channels 3-4)
+    I terminals (3): PROG_OUT (Pin 6, current source +20µA), IREFP (Pin 10), PROG_IN (Pin 7)
+        → 5270B HR SMUs (channels 1, 3-4)
     
     GNDU terminal (1): VSS (Pin 18)
         → 5270B GNDU
     
     PPG terminal (1): WR_ENB (Pin 8)
-        → 81104A Channel 1
+        → 81104A Channel 1 (not connected to counter)
     
-    COUNTER terminal (time interval measurement):
-        → 53230A Channel 1 (start - from PPG WR_ENB, Pin 8)
-        → 53230A Channel 2 (stop - from PROG_OUT SMU, Pin 6)
+    COUNTER terminal (pulse width measurement):
+        → 53230A Channel 1 (from PROG_OUT SMU, Pin 6, measures pulse width: falling to rising)
+        → 53230A Channel 2 (not connected)
+        → Both channels connected to PROG_OUT to measure pulse width
+
+    Unused pins connected to GNDU (15):
+        Pins 1, 2, 3, 4, 9, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24
+        → Connected to GNDU via unused instrument channels set to 0V
 
 Note: 4156B is NOT used in this experiment. All SMU functions are
       performed by the 5270B.
 
 Counter Configuration:
-    - Channel 1: Connected to PPG output (WR_ENB, Pin 8) - start event
-    - Channel 2: Connected to PROG_OUT SMU output (Pin 6) - stop event
-    - Time interval measurement: WR_ENB (Pin 8) falling edge to PROG_OUT (Pin 6) falling edge
-    - Threshold voltage: VCC/2 on both channels
+    - Channel 1: Connected to PROG_OUT SMU output (Pin 6) - measures pulse width (falling to rising)
+    - Channel 2: Not connected
+    - Pulse width measurement: PROG_OUT (Pin 6) falling edge to rising edge on CH1
+    - Threshold voltage: Configurable (default: 4V)
 
 Compliance Settings:
     - Voltage sources: 1mA compliance
-    - Current sources: 2V compliance
+    - Current sources: 0.1V compliance for positive currents, 2V for non-positive
     - Current direction: "pulled" (positive = into IV meter)
 """
 
@@ -50,15 +54,20 @@ from .resource_types import (
 
 PROGRAMMER_TERMINALS = {
     # ------------------------------------
-    # V Terminals - High-Resolution SMUs
+    # I Terminals - Current Sources
+    # Current is "pulled" (positive = into meter)
     # ------------------------------------
     "PROG_OUT": TerminalConfig(
         terminal="PROG_OUT",
-        measurement_type=MeasurementType.V,
+        measurement_type=MeasurementType.I,
         instrument=InstrumentType.IV5270B,
         channel=1,
-        description="Programming output - 5270B HR SMU with series resistor, VCC applied"
+        description="Programming output - 5270B HR SMU current source, +20µA with 1.8V compliance (Pin 6)"
     ),
+    
+    # ------------------------------------
+    # V Terminals - High-Resolution SMUs
+    # ------------------------------------
     "ICELLMEAS": TerminalConfig(
         terminal="ICELLMEAS",
         measurement_type=MeasurementType.V,
@@ -68,7 +77,7 @@ PROGRAMMER_TERMINALS = {
     ),
     
     # ------------------------------------
-    # I Terminals - Current Sources
+    # I Terminals - Current Sources (continued)
     # Current is "pulled" (positive = into meter)
     # ------------------------------------
     "IREFP": TerminalConfig(
@@ -136,16 +145,16 @@ PROGRAMMER_TERMINALS = {
     ),
     
     # ------------------------------------
-    # COUNTER Terminal - Time Interval Measurement
-    # CH1: PPG output (WR_ENB) - start
-    # CH2: SMU output (PROG_OUT) - stop
+    # COUNTER Terminal - Pulse Width Measurement
+    # CH1: PROG_OUT SMU (measures pulse width: falling to rising edge)
+    # CH2: Not connected
     # ------------------------------------
     "COUNTER": TerminalConfig(
         terminal="COUNTER",
         measurement_type=MeasurementType.COUNTER,
         instrument=InstrumentType.CT53230A,
-        channel=1,  # Start channel (CH1 from PPG, CH2 from PROG_OUT)
-        description="Time interval counter - 53230A (CH1=WR_ENB, CH2=PROG_OUT)"
+        channel=1,  # CH1 connected to PROG_OUT, measures pulse width
+        description="Pulse width counter - 53230A CH1 (PROG_OUT falling to rising)"
     ),
 }
 
@@ -233,22 +242,22 @@ PROGRAMMER_PULSE_CONFIG = {
 }
 
 # ============================================================================
-# Counter Configuration for Time Interval Measurement
+# Counter Configuration for Pulse Width Measurement
 # ============================================================================
-# Counter measures time from WR_ENB (Pin 8) going low to PROG_OUT (Pin 6) going low
-#   - Channel 1: Start event (WR_ENB, Pin 8, falling edge from PPG)
-#   - Channel 2: Stop event (PROG_OUT, Pin 6, falling edge from SMU)
-#   - Threshold: VCC/2 on both channels
+# Counter measures pulse width on CH1 (PROG_OUT falling to rising edge)
+#   - Channel 1: PROG_OUT from SMU (Pin 6) - measures pulse width
+#   - Channel 2: Not connected
+#   - Threshold: Configurable (default: 4V)
+#   - Note: PPG (WR_ENB) is not connected to the counter
 
 PROGRAMMER_COUNTER_CONFIG = {
-    "time_interval": {
-        "start_channel": 1,     # CH1 connected to PPG (WR_ENB, Pin 8)
-        "stop_channel": 2,      # CH2 connected to PROG_OUT SMU (Pin 6)
+    "pulse_width": {
+        "channel": 1,           # CH1 connected to PROG_OUT SMU (Pin 6)
         "coupling": "DC",       # DC coupling for logic signals
         "impedance": 1000000,   # 1 MOhm input impedance
-        "threshold": None,      # Set to VCC/2 at runtime
-        "slope_start": "NEG",   # Falling edge on start (WR_ENB goes low)
-        "slope_stop": "NEG",    # Falling edge on stop (PROG_OUT goes low)
+        "threshold": None,      # Set from settings at runtime (default: 4V)
+        "start_slope": "NEG",   # Falling edge on start (PROG_OUT goes low)
+        "stop_slope": "POS",    # Rising edge on stop (PROG_OUT goes high)
     }
 }
 

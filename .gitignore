@@ -64,3 +64,4 @@ secrets.json
 logs/test_commands.txt
 logs/*.log
 measurements/
+analysis_plots/*.png

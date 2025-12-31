@@ -5,10 +5,10 @@ Programmer Experiment Execution Script
 
 Top-level execution script for the Programmer experiment.
 This script:
-- Measures programming timing (WR_ENB low to PROG_OUT low)
+- Measures programming timing (PROG_OUT pulse width: falling to rising)
 - Uses 5270B for all SMU functions (4156B not used)
 - Uses 53230A counter for time interval measurement
-- Uses 81104A pulse generator for WR_ENB
+- Uses 81104A pulse generator for WR_ENB (not connected to counter)
 
 Usage:
     python -m experiments.run_programmer [--test] [--vdd VDD] [--vcc VCC]
@@ -19,24 +19,26 @@ Usage:
 
 Configuration:
     Terminal mappings are defined in configs/programmer.py
+    Counter threshold is configurable in configs/programmer_settings.py (default: 4V)
     
 Terminal Connections:
-    PROG_OUT: SMU CH1 with VCC and series resistor → Counter CH2
+    PROG_OUT: SMU CH1 with +20µA current source (1.8V compliance) → Counter CH1
     ICELLMEAS: SMU CH2 with VDD/2
     IREFP: SMU CH3 (current list)
     PROG_IN: SMU CH4 (10nA to 100nA in 10nA steps)
     VSS: GNDU
-    WR_ENB: PPG CH1 → Counter CH1
+    WR_ENB: PPG CH1 (not connected to counter)
 
 Counter Setup:
-    - CH1: Connected to PPG output (WR_ENB) - start event (falling edge)
-    - CH2: Connected to PROG_OUT SMU - stop event (falling edge)
-    - Threshold: VCC/2 on both channels
+    - CH1: Connected to PROG_OUT SMU - measures pulse width (falling to rising edge)
+    - CH2: Not connected
+    - Threshold: Configurable in settings (default: 4V)
+    - Note: PPG (WR_ENB) is not connected to the counter
 
 Experiment Sequence:
     1. Reset all instruments
     2. Turn on PPG (WR_ENB idle at VCC)
-    3. Turn on voltage sources (PROG_OUT=VCC, ICELLMEAS=VDD/2)
+    3. Turn on voltage sources and current sources (PROG_OUT=+20µA, ICELLMEAS=VDD/2)
     4. Turn on current sources (IREFP, PROG_IN)
     5. Spot measurement on ICELLMEAS
     6. Trigger PPG (WR_ENB goes to 0V for 1ms)
@@ -47,7 +49,7 @@ Experiment Sequence:
 
 Compliance Settings:
     - Voltage sources: 1mA compliance
-    - Current sources: 2V compliance
+    - Current sources: 0.1V compliance for positive currents, 2V for non-positive
     - Current direction: "pulled" (positive = into IV meter)
 """
 
@@ -63,7 +65,7 @@ from typing import Dict, List, Any
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.base_experiment import ExperimentRunner
+from experiments.base_experiment import ExperimentRunner, CURRENT_SOURCE_COMPLIANCE
 from configs.programmer import (
     PROGRAMMER_CONFIG,
     PROGRAMMER_TERMINALS,
@@ -85,19 +87,19 @@ class ProgrammerExperiment(ExperimentRunner):
     Programmer experiment runner.
     
     Measures programming timing by:
-    - Applying VCC to PROG_OUT with series resistor enabled
+    - Applying +20µA current source to PROG_OUT (1.8V compliance)
     - Applying VDD/2 to ICELLMEAS
     - Sweeping PROG_IN from 10nA to 100nA
     - Sweeping IREFP through a list of values
     - Triggering WR_ENB pulse (VCC → 0V for 1ms, 10ns edges)
-    - Measuring time interval from WR_ENB low to PROG_OUT low
+    - Measuring pulse width on PROG_OUT (falling to rising edge on CH1)
     - Recording ICELLMEAS before and after programming
     
     All currents are "pulled" (positive = into IV meter).
+    Positive currents use 0.1V compliance (they get negated when sent to instrument).
     """
     
-    def __init__(self, test_mode: bool = False, vdd: float = None, vcc: float = None,
-                 prog_out_mode: str = "voltage"):
+    def __init__(self, test_mode: bool = False, vdd: float = None, vcc: float = None):
         """
         Initialize Programmer experiment.
         
@@ -105,15 +107,10 @@ class ProgrammerExperiment(ExperimentRunner):
             test_mode: If True, log commands without hardware
             vdd: VDD voltage in volts (default: 1.8V)
             vcc: VCC voltage in volts (default: 5.0V)
-            prog_out_mode: "voltage" (VCC with series resistor) or "current" (+100nA with 1.8V limit)
         """
         super().__init__(PROGRAMMER_CONFIG, test_mode)
         self.vdd = vdd if vdd is not None else PROGRAMMER_DEFAULTS["VDD"]
         self.vcc = vcc if vcc is not None else PROGRAMMER_DEFAULTS["VCC"]
-        self.prog_out_mode = prog_out_mode.lower()
-        
-        if self.prog_out_mode not in ["voltage", "current"]:
-            raise ValueError("prog_out_mode must be 'voltage' or 'current'")
         
         # IREFP values (user configurable)
         self.irefp_values: List[float] = []
@@ -138,6 +135,29 @@ class ProgrammerExperiment(ExperimentRunner):
         self.irefp_values = values.copy()
         self.logger.info(f"Set IREFP values: {len(values)} points")
     
+    def set_terminal_current(self, terminal: str, current: float,
+                            compliance: float = None) -> None:
+        """
+        Override set_terminal_current to use 0.1V compliance for positive currents.
+        
+        Positive currents get negated later when sent to the instrument, so we use
+        0.1V compliance for all positive currents as requested.
+        
+        Args:
+            terminal: Logical terminal name
+            current: Current to set in amps (positive = into meter)
+            compliance: Voltage compliance in volts (default: 0.1V for positive, 2V for non-positive)
+        """
+        # For positive currents (which get negated later), use 0.1V compliance
+        if compliance is None:
+            if current > 0:
+                compliance = 0.1  # 0.1V for positive currents
+            else:
+                compliance = CURRENT_SOURCE_COMPLIANCE  # 2V default for non-positive
+        
+        # Call parent method with the determined compliance
+        super().set_terminal_current(terminal, current, compliance)
+    
     # ========================================================================
     # Initialization (called once at start of experiment)
     # ========================================================================
@@ -160,20 +180,34 @@ class ProgrammerExperiment(ExperimentRunner):
         # Get instrument references
         iv = self._get_instrument(InstrumentType.IV5270B)
         
-        # Enable all SMU channels at once
-        prog_out_ch = self.get_terminal_config("PROG_OUT").channel
-        icellmeas_ch = self.get_terminal_config("ICELLMEAS").channel
-        irefp_ch = self.get_terminal_config("IREFP").channel
-        prog_in_ch = self.get_terminal_config("PROG_IN").channel
-        gndu_ch = self.get_terminal_config("VSS").channel
-        vdd_ch = self.get_terminal_config("VDD").channel
-        vcc_ch = self.get_terminal_config("VCC").channel
-        erase_prog_ch = self.get_terminal_config("ERASE_PROG").channel
+        # Get all used channels from terminal configs
+        used_channels = set()
+        for terminal_name, terminal_cfg in PROGRAMMER_TERMINALS.items():
+            if terminal_cfg.instrument == InstrumentType.IV5270B:
+                used_channels.add(terminal_cfg.channel)
         
-        iv.enable_channels([gndu_ch, prog_out_ch, icellmeas_ch, irefp_ch, prog_in_ch, vdd_ch, vcc_ch, erase_prog_ch])
-        self.logger.info(f"Enabled SMU channels: GNDU={gndu_ch}, PROG_OUT={prog_out_ch}, "
-                        f"ICELLMEAS={icellmeas_ch}, IREFP={irefp_ch}, PROG_IN={prog_in_ch}, "
-                        f"VDD={vdd_ch}, VCC={vcc_ch}, ERASE_PROG={erase_prog_ch}")
+        # Enable all 5270B channels (1-8) - Channel 0 (GNDU) is automatically enabled
+        all_channels = list(range(1, 9))  # Channels 1-8
+        iv.enable_channels(all_channels)
+        
+        # Set unused channels to 0V (connected to GNDU)
+        unused_channels = [ch for ch in all_channels if ch not in used_channels]
+        for ch in unused_channels:
+            iv.set_voltage(ch, 0.0, compliance=0.001)  # 0V with 1mA compliance
+            self.logger.debug(f"5270B CH{ch}: Set to 0V (connected to GNDU)")
+        
+        # Log enabled channels
+        channel_info = []
+        for ch in sorted(used_channels):
+            if ch == 0:
+                channel_info.append(f"CH0 (VSS/GNDU)")
+            else:
+                term_name = next((name for name, cfg in PROGRAMMER_TERMINALS.items() 
+                                if cfg.instrument == InstrumentType.IV5270B and cfg.channel == ch), f"CH{ch}")
+                channel_info.append(f"CH{ch} ({term_name})")
+        for ch in unused_channels:
+            channel_info.append(f"CH{ch} (GNDU)")
+        self.logger.info(f"5270B: Enabled channels: {', '.join(channel_info)}")
         
         # Configure PPG (once)
         self._configure_ppg()
@@ -241,11 +275,9 @@ class ProgrammerExperiment(ExperimentRunner):
     
     def _configure_voltage_sources(self, mode: str = "ERASE") -> None:
         """
-        Configure voltage sources (called during initialization and when switching modes).
+        Configure voltage sources and current sources (called during initialization and when switching modes).
         
-        - PROG_OUT: Two modes available:
-          * voltage mode: VCC with series resistor enabled
-          * current mode: +100nA current source with 1.8V compliance
+        - PROG_OUT: +20µA current source with 1.8V compliance
         - ICELLMEAS: VDD/2
         - VDD: self.vdd (power supply voltage)
         - VCC: self.vcc (VCC voltage)
@@ -280,62 +312,68 @@ class ProgrammerExperiment(ExperimentRunner):
         self.set_terminal_voltage("ERASE_PROG", erase_prog_voltage)
         self.logger.info(f"ERASE_PROG: {erase_prog_voltage}V ({mode} mode)")
         
-        # PROG_OUT: Configure based on mode (set last after all other channels)
+        # PROG_OUT: Configure as current source (set last after all other channels)
         prog_out_cfg = self.get_terminal_config("PROG_OUT")
-        if self.prog_out_mode == "voltage":
-            # Voltage mode: VCC with series resistor enabled
-            iv.set_series_resistor(prog_out_cfg.channel, True)
-            self.set_terminal_voltage("PROG_OUT", self.vcc)
-            self.logger.info(f"PROG_OUT: {self.vcc}V with series resistor enabled (voltage mode)")
-        else:
-            # Current mode: +1µA current source with 1V compliance
-            # Note: set_current() negates the value, so we pass -1µA to get +1µA reading
-            iv.set_series_resistor(prog_out_cfg.channel, False)
-            iv.set_current(prog_out_cfg.channel, -1e-6, compliance=1.0)
-            self.logger.info(f"PROG_OUT: +1µA current source with 1V compliance (current mode)")
+        # Current source value from settings
+        # Note: set_terminal_current() uses set_current() which negates the value,
+        # so we pass negative value and it gets negated to positive for the instrument,
+        # giving us positive current flowing into the instrument
+        prog_out_current = SETTINGS.PROG_OUT_CURRENT
+        prog_out_compliance = SETTINGS.PROG_OUT_COMPLIANCE
+        # Pass negative value to get positive current (instrument driver negates it)
+        self.set_terminal_current("PROG_OUT", -prog_out_current, compliance=prog_out_compliance)
+        self.logger.info(f"PROG_OUT: +{prog_out_current*1e6:.1f}µA current source with {prog_out_compliance}V compliance")
     
     def _configure_counter(self) -> None:
         """
-        Configure the counter for time interval measurement (called once during initialization).
+        Configure the counter for pulse width measurement (called once during initialization).
         
-        Measures time from WR_ENB going low (CH1) to PROG_OUT going low (CH2).
-        Both channels use VDD/10 as threshold and falling edge (NEG slope).
+        Measures pulse width on CH1: PROG_OUT falling edge to rising edge.
+        CH2 is not connected.
         """
         self.logger.info("-" * 40)
-        self.logger.info("Configuring counter for time interval measurement")
+        self.logger.info("Configuring counter for pulse width measurement")
         
         counter = self._get_instrument(InstrumentType.CT53230A)
-        cfg = PROGRAMMER_COUNTER_CONFIG["time_interval"]
+        cfg = PROGRAMMER_COUNTER_CONFIG["pulse_width"]
         
-        # Trigger levels: CH1 (WR_ENB) = VCC/2, CH2 (PROG_OUT) = 0.5V
-        ch1_threshold = self.vcc / 2.0  # WR_ENB from PPG
-        ch2_threshold = 0.5  # PROG_OUT
+        # Get threshold from settings (default: 4V)
+        threshold = SETTINGS.COUNTER_CONFIG["threshold"]
+        if isinstance(threshold, str) and threshold == "VCC/2":
+            threshold = self.vcc / 2.0
+        elif not isinstance(threshold, (int, float)):
+            threshold = 4.0  # Default fallback
         
-        # Configure for time interval measurement
+        # Configure for pulse width measurement on single channel
+        # Use CH1 for both start and stop (pulse width = time from falling to rising)
+        channel = cfg["channel"]
         counter.configure_time_interval(
-            start_channel=cfg["start_channel"],
-            stop_channel=cfg["stop_channel"]
+            start_channel=channel,
+            stop_channel=channel  # Same channel for pulse width measurement
         )
         
-        # Set input coupling (DC for logic signals)
-        counter.set_coupling(cfg["start_channel"], cfg["coupling"])
-        counter.set_coupling(cfg["stop_channel"], cfg["coupling"])
+        # Set input coupling (DC for logic signals) - only CH1
+        counter.set_coupling(channel, cfg["coupling"])
         
-        # Set input impedance (1 MOhm)
-        counter.set_impedance(cfg["start_channel"], cfg["impedance"])
-        counter.set_impedance(cfg["stop_channel"], cfg["impedance"])
+        # Set input impedance (1 MOhm) - only CH1
+        counter.set_impedance(channel, cfg["impedance"])
         
-        # Set trigger levels: CH1 = VCC/2, CH2 = 0.5V
-        counter.set_trigger_level(cfg["start_channel"], ch1_threshold)
-        counter.set_trigger_level(cfg["stop_channel"], ch2_threshold)
+        # Set trigger level for CH1
+        counter.set_trigger_level(channel, threshold)
         
-        # Set trigger slopes to falling edge (NEG) for both channels
-        # WR_ENB goes low (start event), PROG_OUT goes low (stop event)
-        counter.set_slope(cfg["start_channel"], "NEG")
-        counter.set_slope(cfg["stop_channel"], "NEG")
+        # For pulse width measurement on a single channel, the 53230A uses:
+        # - Start event: falling edge (NEG slope)
+        # - Stop event: rising edge (POS slope)
+        # When both start and stop are the same channel, the counter automatically
+        # measures pulse width. The slope setting may need to be configured separately
+        # for start and stop, but for now we set it for the channel.
+        # Note: The 53230A may require separate slope commands for start/stop in time interval mode
+        counter.set_slope(channel, cfg["start_slope"])  # Falling edge for start
         
-        self.logger.info(f"Counter: Time interval CH{cfg['start_channel']} -> CH{cfg['stop_channel']}")
-        self.logger.info(f"Trigger levels: CH1={ch1_threshold}V (VCC/2), CH2={ch2_threshold}V, falling edge")
+        self.logger.info(f"Counter: Pulse width measurement on CH{channel} (PROG_OUT)")
+        self.logger.info(f"Trigger level: {threshold}V")
+        self.logger.info(f"Measurement: Falling edge to rising edge on CH{channel}")
+        self.logger.info(f"CH2: Not connected")
     
     # ========================================================================
     # Current Setting (only thing that changes between measurements)
@@ -428,30 +466,30 @@ class ProgrammerExperiment(ExperimentRunner):
     
     def initiate_time_interval(self) -> None:
         """
-        Initiate time interval measurement on the counter.
+        Initiate pulse width measurement on the counter.
         
         This should be called BEFORE triggering WR_ENB.
-        Counter will wait for start event (WR_ENB falling edge).
+        Counter will wait for PROG_OUT falling edge (start of pulse width measurement).
         """
         counter = self._get_instrument(InstrumentType.CT53230A)
         counter.initiate()
-        self.logger.info("Counter measurement initiated (waiting for trigger)")
+        self.logger.info("Counter measurement initiated (waiting for PROG_OUT falling edge on CH1)")
     
     def fetch_time_interval(self) -> float:
         """
-        Fetch time interval measurement from counter.
+        Fetch pulse width measurement from counter.
         
         This should be called AFTER triggering WR_ENB.
-        Returns the measured time from WR_ENB low to PROG_OUT low.
+        Returns the measured pulse width: PROG_OUT falling to rising edge on CH1.
         
         Returns:
-            Time interval in seconds (WR_ENB low to PROG_OUT low)
+            Pulse width in seconds (PROG_OUT falling to rising edge)
         """
         counter = self._get_instrument(InstrumentType.CT53230A)
-        interval = counter.fetch()
+        pulse_width = counter.fetch()
         
-        self.logger.info(f"Time interval (pulse width): {interval*1e6:.3f} µs")
-        return interval
+        self.logger.info(f"PROG_OUT pulse width (CH1): {pulse_width*1e6:.3f} µs")
+        return pulse_width
     
     # ========================================================================
     # CSV Output Management
@@ -497,12 +535,13 @@ class ProgrammerExperiment(ExperimentRunner):
         # Define CSV headers
         # Mode: ERASE or PROGRAM
         # Current sources: IREFP, PROG_IN
-        # Voltage sources: VDD, VCC, PROG_OUT, V_ICELLMEAS, ERASE_PROG
+        # Current sources: IREFP, PROG_IN, PROG_OUT
+        # Voltage sources: VDD, VCC, V_ICELLMEAS, ERASE_PROG
         # Measurements: VREFP, ICELLMEAS_START, ICELLMEAS_FINAL, PULSE_WIDTH
         headers = [
             "MODE",  # ERASE or PROGRAM
-            "IREFP", "PROG_IN",  # Current sources
-            "VDD", "VCC", "PROG_OUT", "V_ICELLMEAS", "ERASE_PROG",  # Voltage sources
+            "IREFP", "PROG_IN", "PROG_OUT",  # Current sources
+            "VDD", "VCC", "V_ICELLMEAS", "ERASE_PROG",  # Voltage sources
             "VREFP", "ICELLMEAS_START", "ICELLMEAS_FINAL", "PULSE_WIDTH"  # Measurements
         ]
         
@@ -532,7 +571,7 @@ class ProgrammerExperiment(ExperimentRunner):
             self._initialize_csv_output()
         
         # Calculate voltage values
-        prog_out_voltage = self.vcc
+        prog_out_current = SETTINGS.PROG_OUT_CURRENT  # Current source value from settings
         icellmeas_voltage = self.vdd / 2.0
         erase_prog_voltage = self.vcc if mode == "ERASE" else 0.0
         
@@ -541,9 +580,9 @@ class ProgrammerExperiment(ExperimentRunner):
             mode,  # MODE
             irefp,  # IREFP
             prog_in,  # PROG_IN
+            prog_out_current,  # PROG_OUT (current in Amps)
             self.vdd,  # VDD
             self.vcc,  # VCC
-            prog_out_voltage,  # PROG_OUT
             icellmeas_voltage,  # V_ICELLMEAS
             erase_prog_voltage,  # ERASE_PROG
             vrefp,  # VREFP
@@ -585,7 +624,7 @@ class ProgrammerExperiment(ExperimentRunner):
         Initialization (once at start):
             1. Reset all instruments (done in startup via context manager)
             2. Configure PPG (WR_ENB at VCC)
-            3. Configure voltage sources (PROG_OUT=VCC, ICELLMEAS=VDD/2)
+            3. Configure voltage sources and current sources (PROG_OUT=+20µA, ICELLMEAS=VDD/2)
             4. Configure counter for time interval
             5. Enable all SMU channels
         
@@ -593,7 +632,7 @@ class ProgrammerExperiment(ExperimentRunner):
             - Set current levels (ONLY thing that changes)
             - Spot measurement on ICELLMEAS (starting)
             - Trigger PPG
-            - Read counter for time delay
+            - Read counter for PROG_OUT pulse width
             - Final spot measurement on ICELLMEAS
             - Record all data
         
@@ -616,7 +655,8 @@ class ProgrammerExperiment(ExperimentRunner):
                 "VDD": self.vdd,
                 "VCC": self.vcc,
                 "ICELLMEAS_VOLTAGE": self.vdd / 2.0,
-                "PROG_OUT_VOLTAGE": self.vcc,
+                "PROG_OUT_CURRENT": SETTINGS.PROG_OUT_CURRENT,
+                "PROG_OUT_COMPLIANCE": SETTINGS.PROG_OUT_COMPLIANCE,
             },
             "irefp_values": self.irefp_values.copy(),
             "prog_in_values": self.prog_in_values.copy(),
@@ -776,15 +816,7 @@ class ProgrammerExperiment(ExperimentRunner):
         except Exception as e:
             self.logger.error(f"Failed to idle PPG: {e}")
         
-        # Disable series resistor on PROG_OUT (only if in voltage mode)
-        try:
-            if self.prog_out_mode == "voltage":
-                iv = self._get_instrument(InstrumentType.IV5270B)
-                prog_out_cfg = self.get_terminal_config("PROG_OUT")
-                iv.set_series_resistor(prog_out_cfg.channel, False)
-        except Exception as e:
-            self.logger.error(f"Failed to disable series resistor: {e}")
-        
+       
         # Call parent shutdown
         super().shutdown()
 
@@ -811,13 +843,6 @@ def main():
         default=SETTINGS.VCC,
         help=f'VCC voltage in volts (default: {SETTINGS.VCC})'
     )
-    parser.add_argument(
-        '--prog-out-mode',
-        type=str,
-        default='voltage',
-        choices=['voltage', 'current'],
-        help='PROG_OUT mode: voltage (VCC with series resistor) or current (+100nA with 1.8V limit)'
-    )
     args = parser.parse_args()
     
     # Run experiment
@@ -827,7 +852,6 @@ def main():
         test_mode=args.test,
         vdd=args.vdd,
         vcc=args.vcc,
-        prog_out_mode=args.prog_out_mode,
     ) as experiment:
         
         # Load IREFP values from settings file
@@ -846,7 +870,7 @@ def main():
     print(f"Parameters: VDD={results['parameters']['VDD']}V, "
           f"VCC={results['parameters']['VCC']}V")
     print(f"ICELLMEAS voltage: {results['parameters']['ICELLMEAS_VOLTAGE']}V")
-    print(f"PROG_OUT voltage: {results['parameters']['PROG_OUT_VOLTAGE']}V")
+    print(f"PROG_OUT current: {results['parameters']['PROG_OUT_CURRENT']*1e6:.1f}µA")
     print(f"Total measurements: {len(results['measurements'])}")
     
     if results['measurements']:
