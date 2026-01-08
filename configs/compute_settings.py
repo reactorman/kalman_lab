@@ -9,9 +9,9 @@ Edit these values to quickly adjust your experiment without modifying other file
 
 Sections:
     1. VOLTAGE SETTINGS - VDD, VCC supply voltages
-    2. CURRENT LISTS - Fixed current sweep values for each parameter
-    3. SYNCHRONOUS SWEEP - X1 and IMEAS sweep ranges
-    4. PPG SETTINGS - Pulse generator DC mode voltages
+    2. PPG SETTINGS - Pulse generator DC mode voltages
+    3. COMPLIANCE SETTINGS - Voltage and current compliance limits
+    4. EXPERIMENT DEFINITIONS - Named experiments with enable flags
 """
 
 # ============================================================================
@@ -23,78 +23,7 @@ VDD = 1.8       # VDD voltage in volts
 VCC = 5.0       # VCC voltage in volts
 
 # ============================================================================
-# 2. CURRENT LISTS (Fixed Current Sweep Parameters)
-# ============================================================================
-# These currents are iterated through in all combinations.
-# Each combination triggers a full synchronous sweep of X1/IMEAS.
-# Units: Amps (use scientific notation, e.g., 1e-6 = 1µA, 100e-9 = 100nA)
-
-# KGAIN current values (applied to both KGAIN1 and KGAIN2 - they are linked)
-KGAIN_VALUES = [
-    0e-9,       # 1 µA
-    5e-9,
-    10e-9,       # 2 µA
-    20e-9,       # 5 µA
-]
-
-# TRIM current values (applied to both TRIM1 and TRIM2 - they are linked)
-TRIM_VALUES = [
-    1e-9,
-    5e-9,
-    10e-9,       # 1 µA
-    50e-9,       # 2 µA
-]
-
-# X2 current values
-X2_VALUES = [
-    5e-9,
-    10e-9,       # 1 µA
-]
-
-# IREFP current values
-IREFP_VALUES = [
-    10e-9,
-    100e-9,       # 1 µA
-]
-
-# F11 current values
-F11_VALUES = [
-    100e-9,       # 1 µA
-]
-
-# F12 current values
-F12_VALUES = [
-    5e-9,
-    10e-9,       # 1 µA
-]
-
-# ============================================================================
-# 3. X1 FIXED VALUES AND IMEAS SWEEP CONFIGURATION
-# ============================================================================
-# X1 is set to fixed current values. For each X1 value, IMEAS sweeps from
-# (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET) in IMEAS_NUM_STEPS steps.
-# Units: Amps
-
-# X1 fixed current values (list of values to iterate through)
-X1_VALUES = [
-    10e-9,
-    20e-9, 
-    30e-9,
-    40e-9,
-    50e-9,
-    60e-9,
-    70e-9,
-    80e-9,
-    90e-9,
-]
-
-# IMEAS sweep configuration (relative to each X1 value)
-# IMEAS sweeps from (X1 - IMEAS_RANGE_OFFSET) to (X1 + IMEAS_RANGE_OFFSET)
-IMEAS_RANGE_OFFSET = 20e-9    # ±20nA around X1 value
-IMEAS_NUM_STEPS = 100           # Number of sweep points (step size = 2*IMEAS_RANGE_OFFSET/(IMEAS_NUM_STEPS-1))
-
-# ============================================================================
-# 4. PPG SETTINGS (DC Mode for ERASE_PROG)
+# 2. PPG SETTINGS (DC Mode for ERASE_PROG)
 # ============================================================================
 # PPG operates in DC mode only (no pulses).
 # All measurements are done in both ERASE and PROGRAM states.
@@ -108,7 +37,7 @@ PPG_PROGRAM_VOLTAGE = 0.0   # 0V for program state
 PPG_STATE_ORDER = ["ERASE", "PROGRAM"]
 
 # ============================================================================
-# COMPLIANCE SETTINGS (Usually don't need to change)
+# 3. COMPLIANCE SETTINGS (Usually don't need to change)
 # ============================================================================
 
 # Current compliance for voltage sources (A)
@@ -116,6 +45,135 @@ VOLTAGE_SOURCE_COMPLIANCE = 0.001   # 1 mA
 
 # Voltage compliance for current sources (V)
 CURRENT_SOURCE_COMPLIANCE = 0.1     # 2 V
+
+# ============================================================================
+# 4. EXPERIMENT DEFINITIONS
+# ============================================================================
+# Each experiment defines:
+#   - name: Experiment name (printed to CSV and logfile)
+#   - enabled: Boolean flag to enable/disable the experiment
+#   - fixed_values: Dictionary of fixed parameter values (all parameters except sweep_variables)
+#   - sweep_variables: List of variable names to sweep (either 1 or 2 variables)
+#
+# Available variables: X1, X2, KGAIN (for KGAIN1/KGAIN2 linked), TRIM (for TRIM1/TRIM2 linked),
+#                      F11, F12, IREFP, IMEAS, ERASE_PROG (PPG state: "ERASE" or "PROGRAM")
+#
+# Note: KGAIN1 and KGAIN2 are always linked (use "KGAIN" in sweep_variables)
+#       TRIM1 and TRIM2 are always linked (use "TRIM" in sweep_variables)
+#       ERASE_PROG is a list of PPG state names: ["ERASE"], ["PROGRAM"], or ["ERASE", "PROGRAM"]
+
+# ============================================================================
+# EXPERIMENT ENABLE FLAGS (All in one place for easy control)
+# ============================================================================
+EXP_ENABLE_1 = True   # Experiment 1: Sweep X1
+EXP_ENABLE_2 = True   # Experiment 2: Sweep X2
+EXP_ENABLE_3 = True   # Experiment 3: Sweep KGAIN
+EXP_ENABLE_4 = True   # Experiment 4: Sweep IREFP
+EXP_ENABLE_5 = True   # Experiment 5: Sweep X1 and X2
+EXP_ENABLE_6 = True   # Experiment 6: Sweep KGAIN and TRIM
+
+# ============================================================================
+# EXPERIMENT DEFINITIONS
+# ============================================================================
+
+EXPERIMENTS = [
+    {
+        "name": "Sweep_X1",
+        "enabled": EXP_ENABLE_1,
+        "fixed_values": {
+            "X2": 10e-9,
+            "KGAIN": 10e-9,
+            "TRIM": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IREFP": 100e-9,
+            "IMEAS": None,  # None means IMEAS will match X1 value
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["X1"],
+        "X1_values": [10e-9, 20e-9, 30e-9, 40e-9, 50e-9, 60e-9, 70e-9, 80e-9, 90e-9],
+    },
+    {
+        "name": "Sweep_X2",
+        "enabled": EXP_ENABLE_2,
+        "fixed_values": {
+            "X1": 50e-9,
+            "KGAIN": 10e-9,
+            "TRIM": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IREFP": 100e-9,
+            "IMEAS": 50e-9,
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["X2"],
+        "X2_values": [5e-9, 10e-9, 15e-9, 20e-9, 25e-9, 30e-9],
+    },
+    {
+        "name": "Sweep_KGAIN",
+        "enabled": EXP_ENABLE_3,
+        "fixed_values": {
+            "X1": 50e-9,
+            "X2": 10e-9,
+            "TRIM": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IREFP": 100e-9,
+            "IMEAS": 50e-9,
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["KGAIN"],
+        "KGAIN_values": [0e-9, 5e-9, 10e-9, 15e-9, 20e-9],
+    },
+    {
+        "name": "Sweep_IREFP",
+        "enabled": EXP_ENABLE_4,
+        "fixed_values": {
+            "X1": 50e-9,
+            "X2": 10e-9,
+            "KGAIN": 10e-9,
+            "TRIM": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IMEAS": 50e-9,
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["IREFP"],
+        "IREFP_values": [10e-9, 50e-9, 100e-9, 150e-9, 200e-9],
+    },
+    {
+        "name": "Sweep_X1_X2",
+        "enabled": EXP_ENABLE_5,
+        "fixed_values": {
+            "KGAIN": 10e-9,
+            "TRIM": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IREFP": 100e-9,
+            "IMEAS": None,  # None means IMEAS will match X1 value
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["X1", "X2"],
+        "X1_values": [30e-9, 40e-9, 50e-9, 60e-9, 70e-9],
+        "X2_values": [5e-9, 10e-9, 15e-9, 20e-9],
+    },
+    {
+        "name": "Sweep_KGAIN_TRIM",
+        "enabled": EXP_ENABLE_6,
+        "fixed_values": {
+            "X1": 50e-9,
+            "X2": 10e-9,
+            "F11": 100e-9,
+            "F12": 10e-9,
+            "IREFP": 100e-9,
+            "IMEAS": 50e-9,
+            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+        },
+        "sweep_variables": ["KGAIN", "TRIM"],
+        "KGAIN_values": [0e-9, 5e-9, 10e-9, 15e-9, 20e-9],
+        "TRIM_values": [1e-9, 5e-9, 10e-9, 25e-9, 50e-9],
+    },
+]
 
 # ============================================================================
 # HELPER FUNCTION - Get all settings as dict
@@ -127,17 +185,6 @@ def get_settings():
         # Voltages
         "VDD": VDD,
         "VCC": VCC,
-        # Current lists
-        "KGAIN": KGAIN_VALUES,
-        "TRIM": TRIM_VALUES,
-        "X2": X2_VALUES,
-        "IREFP": IREFP_VALUES,
-        "F11": F11_VALUES,
-        "F12": F12_VALUES,
-        # X1 and IMEAS
-        "X1_VALUES": X1_VALUES,
-        "IMEAS_RANGE_OFFSET": IMEAS_RANGE_OFFSET,
-        "IMEAS_NUM_STEPS": IMEAS_NUM_STEPS,
         # PPG
         "PPG_ERASE_VOLTAGE": PPG_ERASE_VOLTAGE,
         "PPG_PROGRAM_VOLTAGE": PPG_PROGRAM_VOLTAGE,
@@ -145,5 +192,7 @@ def get_settings():
         # Compliance
         "VOLTAGE_SOURCE_COMPLIANCE": VOLTAGE_SOURCE_COMPLIANCE,
         "CURRENT_SOURCE_COMPLIANCE": CURRENT_SOURCE_COMPLIANCE,
+        # Experiments
+        "EXPERIMENTS": EXPERIMENTS,
     }
 

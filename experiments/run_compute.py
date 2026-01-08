@@ -451,32 +451,51 @@ class ComputeExperiment(ExperimentRunner):
     # Parameter Combination Iterator
     # ========================================================================
     
-    def generate_parameter_combinations(self) -> List[Dict[str, float]]:
+    def generate_experiment_combinations(self, experiment: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Generate all combinations of fixed current parameters.
+        Generate all combinations for a single experiment based on its sweep variables.
+        
+        Args:
+            experiment: Experiment dictionary with fixed_values, sweep_variables, and value lists
         
         Returns:
-            List of dictionaries, each containing one combination of parameter values
+            List of dictionaries, each containing parameter values for one combination
         """
-        # Get all parameter names and their values
+        sweep_vars = experiment.get("sweep_variables", [])
+        fixed_values = experiment.get("fixed_values", {}).copy()
+        
+        if not sweep_vars:
+            # No sweep variables, return single combination with all fixed values
+            return [fixed_values]
+        
+        # Get value lists for each sweep variable
         param_names = []
         param_values = []
         
-        for name, values in self.sweep_params.items():
-            if values:  # Only include parameters with values
-                param_names.append(name)
-                param_values.append(values)
+        for var_name in sweep_vars:
+            # Construct the key for the values list (e.g., "X1_values", "KGAIN_values")
+            values_key = f"{var_name}_values"
+            if values_key in experiment:
+                param_names.append(var_name)
+                param_values.append(experiment[values_key])
+            else:
+                self.logger.warning(f"Experiment {experiment.get('name', 'Unknown')}: "
+                                  f"No values found for sweep variable '{var_name}' (looking for '{values_key}')")
         
         if not param_values:
-            return [{}]  # No parameters to sweep
+            # No valid sweep variables, return fixed values only
+            return [fixed_values]
         
         # Generate all combinations using itertools.product
         combinations = []
         for combo in itertools.product(*param_values):
-            combo_dict = dict(zip(param_names, combo))
+            combo_dict = fixed_values.copy()
+            for var_name, value in zip(param_names, combo):
+                combo_dict[var_name] = value
             combinations.append(combo_dict)
         
-        self.logger.info(f"Generated {len(combinations)} parameter combinations")
+        self.logger.info(f"Experiment '{experiment.get('name', 'Unknown')}': "
+                        f"Generated {len(combinations)} combinations from {len(sweep_vars)} sweep variable(s)")
         return combinations
     
     # ========================================================================
@@ -562,8 +581,9 @@ class ComputeExperiment(ExperimentRunner):
         # Current sources: KGAIN1, KGAIN2, TRIM1, TRIM2, X2, IREFP, F11, F12, X1, IMEAS
         # Voltage sources: VDD, VCC, ERASE_PROG (PPG), OUT1, OUT2
         # Measurements: OUT1_current, OUT2_current
-        # Metadata: PPG_state
+        # Metadata: Experiment_Name, PPG_state
         headers = [
+            "Experiment_Name",
             "PPG_state",
             "VDD", "VCC", "ERASE_PROG", "OUT1", "OUT2",  # Voltage sources
             "KGAIN1", "KGAIN2", "TRIM1", "TRIM2", "X2", "IREFP", "F11", "F12",  # Fixed current sources
@@ -582,7 +602,7 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info(f"CSV output initialized: {csv_filename}")
         self.logger.info(f"CSV latest file: {csv_filename_latest}")
     
-    def _write_measurement_row(self, ppg_state: str, ppg_voltage: float,
+    def _write_measurement_row(self, experiment_name: str, ppg_state: str, ppg_voltage: float,
                                fixed_currents: Dict[str, float],
                                x1_value: float, imeas_value: float,
                                out1_current: float, out2_current: float) -> None:
@@ -590,6 +610,7 @@ class ComputeExperiment(ExperimentRunner):
         Write a single measurement row to CSV.
         
         Args:
+            experiment_name: Name of the experiment
             ppg_state: PPG state name ("ERASE" or "PROGRAM")
             ppg_voltage: PPG voltage in volts
             fixed_currents: Dictionary of fixed current values
@@ -609,6 +630,7 @@ class ComputeExperiment(ExperimentRunner):
         
         # Build row data
         row = [
+            experiment_name,  # Experiment_Name
             ppg_state,  # PPG_state
             self.vdd,  # VDD
             self.vcc,  # VCC
@@ -669,12 +691,15 @@ class ComputeExperiment(ExperimentRunner):
         Measurement Sequence:
             1. Initialize all channels (one-time)
             2. Setup voltage supplies and outputs (one-time)
-            3. For each PPG state (ERASE at VCC, PROGRAM at 0V):
-               a. Set PPG voltage (only voltage value changes)
-               b. For each combination of fixed current values:
-                  i.  Set fixed current values (only current values change)
-                  ii. Execute synchronous sweep (only X1/IMEAS currents change)
-                  iii. Record OUT1 and OUT2 currents
+            3. For each enabled experiment:
+               a. For each parameter combination in the experiment:
+                  i. For each PPG state specified in the experiment:
+                     - Set PPG voltage (only voltage value changes)
+                     - Set fixed current values (only current values change)
+                     - For each X1 value (if X1 is being swept):
+                        - Set X1 and IMEAS values
+                        - Execute spot measurement
+                        - Record OUT1 and OUT2 currents
         
         Returns:
             Dictionary containing all measurement results
@@ -686,21 +711,33 @@ class ComputeExperiment(ExperimentRunner):
         self.logger.info("Executing Compute experiment measurement sequence")
         self.logger.info("=" * 60)
         
+        # Get enabled experiments from settings
+        all_experiments = SETTINGS.EXPERIMENTS
+        enabled_experiments = [exp for exp in all_experiments if exp.get("enabled", False)]
+        
+        if not enabled_experiments:
+            self.logger.warning("No enabled experiments found! Check experiment enable flags in compute_settings.py")
+            return {
+                "experiment": "Compute",
+                "parameters": {"VDD": self.vdd, "VCC": self.vcc},
+                "experiments_run": [],
+                "total_measurements": 0,
+            }
+        
+        self.logger.info(f"Found {len(enabled_experiments)} enabled experiment(s):")
+        for exp in enabled_experiments:
+            self.logger.info(f"  - {exp.get('name', 'Unknown')}")
+        self.logger.info("=" * 60)
+        
         results = {
             "experiment": "Compute",
             "parameters": {
                 "VDD": self.vdd,
                 "VCC": self.vcc,
             },
-            "ppg_states": COMPUTE_PPG_STATE_ORDER,
-            "measurement_config": {
-                "X1_values": self.x1_values,
-                "measurement_type": "spot_measurement",
-            },
-            "measurements": {
-                "ERASE": [],    # Measurements at VCC (ERASE state)
-                "PROGRAM": [],  # Measurements at 0V (PROGRAM state)
-            }
+            "experiments_run": [],
+            "measurements": {},
+            "total_measurements": 0,
         }
         
         # =====================================================================
@@ -736,86 +773,189 @@ class ComputeExperiment(ExperimentRunner):
         # MEASUREMENT LOOPS (only current values change)
         # =====================================================================
         
-        # Generate all parameter combinations
-        combinations = self.generate_parameter_combinations()
-        total_measurements = len(COMPUTE_PPG_STATE_ORDER) * len(combinations) * len(self.x1_values)
         measurement_num = 0
         
-        # For each PPG state (ERASE and PROGRAM)
-        for ppg_state in COMPUTE_PPG_STATE_ORDER:
+        # For each enabled experiment
+        for exp_idx, experiment in enumerate(enabled_experiments):
+            exp_name = experiment.get("name", f"Experiment_{exp_idx+1}")
+            
             self.logger.info("=" * 60)
-            self.logger.info(f"PPG STATE: {ppg_state} ({COMPUTE_PPG_STATES[ppg_state]['description']})")
+            self.logger.info(f"EXPERIMENT {exp_idx+1}/{len(enabled_experiments)}: {exp_name}")
             self.logger.info("=" * 60)
             
-            # Set PPG voltage (only voltage value changes, no reconfig)
-            self.set_ppg_state(ppg_state)
+            # Generate all parameter combinations for this experiment
+            combinations = self.generate_experiment_combinations(experiment)
             
-            # For each combination, set currents and sweep
-            for i, combo in enumerate(combinations):
+            # Get sweep variables
+            sweep_vars = experiment.get("sweep_variables", [])
+            
+            # Get PPG states for this experiment
+            # If ERASE_PROG is in sweep_variables, it will be in each combo
+            # Otherwise, get it from fixed_values
+            if "ERASE_PROG" in sweep_vars:
+                # ERASE_PROG is being swept - will get from each combo
+                # Need to determine PPG states from all combinations
+                ppg_states_in_experiment = set()
+                for combo in combinations:
+                    erases_prog_value = combo.get("ERASE_PROG", ["ERASE", "PROGRAM"])
+                    if isinstance(erases_prog_value, list):
+                        ppg_states_in_experiment.update(erases_prog_value)
+                    else:
+                        ppg_states_in_experiment.add(erases_prog_value)
+                # For swept ERASE_PROG, we'll iterate per combo, so just note it
+                erases_prog_swept = True
+            else:
+                # ERASE_PROG is fixed - get from fixed_values
+                erases_prog_list = experiment.get("fixed_values", {}).get("ERASE_PROG", ["ERASE", "PROGRAM"])
+                if not isinstance(erases_prog_list, list):
+                    erases_prog_list = [erases_prog_list]
+                erases_prog_swept = False
+            
+            # Get X1 values for this experiment
+            # If X1 is in sweep_variables, use the X1_values from experiment
+            # Otherwise, use fixed X1 value from fixed_values
+            if "X1" in sweep_vars:
+                x1_list = experiment.get("X1_values", [])
+                if not x1_list:
+                    raise ValueError(f"Experiment '{exp_name}': X1 is in sweep_variables but X1_values is empty or missing")
+            else:
+                x1_value = experiment.get("fixed_values", {}).get("X1")
+                if x1_value is None:
+                    raise ValueError(f"Experiment '{exp_name}': X1 is not in sweep_variables but no fixed X1 value provided")
+                x1_list = [x1_value]
+            
+            # Calculate total measurements for this experiment (rough estimate)
+            if erases_prog_swept:
+                # Will iterate per combo, so can't pre-calculate easily
+                total_exp_measurements_estimate = len(combinations) * len(x1_list) * 2  # Estimate 2 PPG states
+            else:
+                total_exp_measurements_estimate = len(combinations) * len(erases_prog_list) * len(x1_list)
+            
+            self.logger.info(f"Experiment '{exp_name}': {len(combinations)} combinations x "
+                           f"{len(x1_list)} X1 values = ~{total_exp_measurements_estimate} measurements")
+            
+            exp_results = {
+                "name": exp_name,
+                "combinations": len(combinations),
+                "measurements": [],
+            }
+            
+            # For each parameter combination
+            for combo_idx, combo in enumerate(combinations):
                 self.logger.info("-" * 60)
-                self.logger.info(f"{ppg_state} - Combination {i+1}/{len(combinations)}")
-                self.logger.info(f"Fixed currents: {combo}")
+                self.logger.info(f"Experiment '{exp_name}' - Combination {combo_idx+1}/{len(combinations)}")
+                self.logger.info(f"Parameters: {combo}")
+                
+                # Get PPG states for this combination
+                if erases_prog_swept:
+                    # ERASE_PROG is in the combo (either a list or single value)
+                    erases_prog_value = combo.get("ERASE_PROG", ["ERASE", "PROGRAM"])
+                    if isinstance(erases_prog_value, list):
+                        combo_ppg_states = erases_prog_value
+                    else:
+                        combo_ppg_states = [erases_prog_value]
+                else:
+                    # ERASE_PROG is fixed for the experiment
+                    combo_ppg_states = erases_prog_list
+                
+                # Get X1 value for this combination (either from combo if swept, or from list)
+                if "X1" in combo:
+                    combo_x1_list = [combo["X1"]]  # Single value from combination
+                else:
+                    combo_x1_list = x1_list  # Use list from experiment
                 
                 # Set fixed current values (only current values change)
-                self.setup_fixed_currents(combo)
+                # Filter out non-current parameters (ERASE_PROG, IMEAS if None)
+                current_combo = {k: v for k, v in combo.items() 
+                               if k not in ["ERASE_PROG", "IMEAS"] or (k == "IMEAS" and v is not None)}
+                self.setup_fixed_currents(current_combo)
                 
-                # For each X1 value, execute spot measurement
-                for x1_idx, x1_value in enumerate(self.x1_values):
-                    measurement_num += 1
+                # For each PPG state in this combination
+                for ppg_state in combo_ppg_states:
                     self.logger.info("-" * 40)
-                    self.logger.info(f"[{measurement_num}/{total_measurements}] "
-                                   f"X1 = {x1_value}A ({x1_idx+1}/{len(self.x1_values)})")
+                    self.logger.info(f"PPG STATE: {ppg_state} ({COMPUTE_PPG_STATES.get(ppg_state, {}).get('description', 'Unknown')})")
                     
-                    # Execute spot measurement for this X1 value (IMEAS set to same as X1)
-                    spot_results = self.execute_spot_measurement(x1_value, imeas_value=x1_value)
-                    
-                    # Get PPG voltage for this state
+                    # Set PPG voltage (only voltage value changes, no reconfig)
+                    self.set_ppg_state(ppg_state)
                     ppg_voltage = self.get_ppg_state_voltage(ppg_state)
                     
-                    # Get measured currents from spot measurement
-                    out1_current = spot_results["OUT1_current"]
-                    out2_current = spot_results["OUT2_current"]
-                    
-                    # In test mode, use dummy measurement data but keep correct voltage/current settings
-                    if self.test_mode:
-                        # Use small dummy values for measurements, but keep actual voltage/current settings
-                        out1_current = 1e-12  # Dummy measurement
-                        out2_current = 1e-12  # Dummy measurement
-                    
-                    # Write row to CSV
-                    self._write_measurement_row(
-                        ppg_state=ppg_state,
-                        ppg_voltage=ppg_voltage,
-                        fixed_currents=combo,
-                        x1_value=spot_results["x1_value"],
-                        imeas_value=spot_results["imeas_value"],
-                        out1_current=out1_current,
-                        out2_current=out2_current
-                    )
-                    
-                    # Store results
-                    measurement = {
-                        "combination_index": i,
-                        "x1_index": x1_idx,
-                        "x1_value": x1_value,
-                        "imeas_value": spot_results["imeas_value"],
-                        "ppg_state": ppg_state,
-                        "ppg_voltage": ppg_voltage,
-                        "fixed_currents": combo,
-                        "spot_results": spot_results,
-                    }
-                    results["measurements"][ppg_state].append(measurement)
-                    
-                    # Check for errors after first measurement (first set of conditions)
-                    if measurement_num == 1:
-                        self.logger.info("Checking for errors after first measurement...")
-                        errors = self.check_all_instrument_errors()
-                        self.report_and_exit_on_errors(errors)
+                    # For each X1 value
+                    for x1_idx, x1_value in enumerate(combo_x1_list):
+                        measurement_num += 1
+                        self.logger.info("-" * 30)
+                        self.logger.info(f"[{measurement_num}] Experiment '{exp_name}' - "
+                                       f"PPG: {ppg_state}, X1: {x1_value}A ({x1_idx+1}/{len(combo_x1_list)})")
+                        
+                        # Determine IMEAS value
+                        imeas_value = combo.get("IMEAS")
+                        if imeas_value is None:
+                            # If IMEAS is None in fixed_values, it means use same as X1
+                            imeas_value = x1_value
+                        elif "IMEAS" in sweep_vars:
+                            # IMEAS is being swept, use value from combo
+                            imeas_value = combo.get("IMEAS", x1_value)
+                        else:
+                            # IMEAS is fixed, use value from fixed_values or combo
+                            imeas_value = combo.get("IMEAS", x1_value)
+                        
+                        # Execute spot measurement for this X1/IMEAS value
+                        spot_results = self.execute_spot_measurement(x1_value, imeas_value=imeas_value)
+                        
+                        # Get measured currents from spot measurement
+                        out1_current = spot_results["OUT1_current"]
+                        out2_current = spot_results["OUT2_current"]
+                        
+                        # In test mode, use dummy measurement data but keep correct voltage/current settings
+                        if self.test_mode:
+                            # Use small dummy values for measurements, but keep actual voltage/current settings
+                            out1_current = 1e-12  # Dummy measurement
+                            out2_current = 1e-12  # Dummy measurement
+                        
+                        # Write row to CSV (include experiment name)
+                        self._write_measurement_row(
+                            experiment_name=exp_name,
+                            ppg_state=ppg_state,
+                            ppg_voltage=ppg_voltage,
+                            fixed_currents=current_combo,
+                            x1_value=spot_results["x1_value"],
+                            imeas_value=spot_results["imeas_value"],
+                            out1_current=out1_current,
+                            out2_current=out2_current
+                        )
+                        
+                        # Store results
+                        measurement = {
+                            "experiment_name": exp_name,
+                            "combination_index": combo_idx,
+                            "x1_index": x1_idx,
+                            "x1_value": x1_value,
+                            "imeas_value": spot_results["imeas_value"],
+                            "ppg_state": ppg_state,
+                            "ppg_voltage": ppg_voltage,
+                            "parameters": current_combo.copy(),
+                            "spot_results": spot_results,
+                        }
+                        exp_results["measurements"].append(measurement)
+                        results["measurements"][exp_name] = results["measurements"].get(exp_name, [])
+                        results["measurements"][exp_name].append(measurement)
+                        
+                        # Check for errors after first measurement
+                        if measurement_num == 1:
+                            self.logger.info("Checking for errors after first measurement...")
+                            errors = self.check_all_instrument_errors()
+                            self.report_and_exit_on_errors(errors)
+            
+            results["experiments_run"].append(exp_results)
+            self.logger.info("=" * 60)
+            self.logger.info(f"Experiment '{exp_name}' complete: {len(exp_results['measurements'])} measurements")
+            self.logger.info("=" * 60)
+        
+        results["total_measurements"] = measurement_num
         
         self.logger.info("=" * 60)
-        self.logger.info("Compute experiment complete")
-        self.logger.info(f"Total measurements: {measurement_num} "
-                        f"({len(combinations)} combinations x {len(self.x1_values)} X1 values x {len(COMPUTE_PPG_STATE_ORDER)} PPG states)")
+        self.logger.info("All experiments complete")
+        self.logger.info(f"Total experiments run: {len(enabled_experiments)}")
+        self.logger.info(f"Total measurements: {measurement_num}")
         self.logger.info("Note: Using spot measurements (no sweeps)")
         self.logger.info("=" * 60)
         
@@ -922,16 +1062,9 @@ def main():
         vcc=args.vcc,
     ) as experiment:
         
-        # Load sweep parameter values from settings file
-        experiment.set_sweep_values("KGAIN", SETTINGS.KGAIN_VALUES)
-        experiment.set_sweep_values("TRIM", SETTINGS.TRIM_VALUES)
-        experiment.set_sweep_values("X2", SETTINGS.X2_VALUES)
-        experiment.set_sweep_values("IREFP", SETTINGS.IREFP_VALUES)
-        experiment.set_sweep_values("F11", SETTINGS.F11_VALUES)
-        experiment.set_sweep_values("F12", SETTINGS.F12_VALUES)
-        
-        # Set X1 fixed current values from settings
-        experiment.set_x1_values(SETTINGS.X1_VALUES)
+        # Experiments are now defined in configs/compute_settings.py
+        # Each experiment has its own fixed values and sweep variables
+        # No need to set sweep values here - they're loaded from EXPERIMENTS list
         
         # Run experiment
         results = experiment.run()
@@ -943,22 +1076,12 @@ def main():
     print(f"Experiment: {results['experiment']}")
     print(f"Parameters: VDD={results['parameters']['VDD']}V, "
           f"VCC={results['parameters']['VCC']}V")
-    print(f"PPG States: {', '.join(results['ppg_states'])}")
+    print(f"Experiments run: {len(results.get('experiments_run', []))}")
     
-    total_erase = len(results['measurements']['ERASE'])
-    total_program = len(results['measurements']['PROGRAM'])
-    print(f"Measurements in ERASE state (VCC): {total_erase}")
-    print(f"Measurements in PROGRAM state (0V): {total_program}")
-    print(f"Total measurements: {total_erase + total_program}")
+    for exp_result in results.get('experiments_run', []):
+        print(f"  - {exp_result.get('name', 'Unknown')}: {len(exp_result.get('measurements', []))} measurements")
     
-    if results['measurements']['ERASE']:
-        first = results['measurements']['ERASE'][0]
-        if 'spot_results' in first:
-            # Spot measurement structure
-            x1_val = first['spot_results'].get('x1_value', 'N/A')
-            imeas_val = first['spot_results'].get('imeas_value', 'N/A')
-            print(f"Measurement type: Spot measurement")
-            print(f"  (X1 = {x1_val}A, IMEAS = {imeas_val}A)")
+    print(f"Total measurements: {results.get('total_measurements', 0)}")
     print("=" * 60)
 
 

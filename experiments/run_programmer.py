@@ -225,9 +225,9 @@ class ProgrammerExperiment(ExperimentRunner):
         self.logger.info("INITIALIZATION COMPLETE - Ready for measurements")
         self.logger.info("=" * 60)
         
-        # Check for errors after initialization
+        # Check for errors after initialization (ignore counter errors)
         errors = self.check_all_instrument_errors()
-        self.report_and_exit_on_errors(errors)
+        self.report_and_exit_on_errors_filtered(errors)
     
     def _configure_ppg(self) -> None:
         """
@@ -393,6 +393,36 @@ class ProgrammerExperiment(ExperimentRunner):
         self.set_terminal_current("IREFP", irefp)
         self.set_terminal_current("PROG_IN", prog_in)
     
+    def report_and_exit_on_errors_filtered(self, errors: Dict[str, List[str]]) -> None:
+        """
+        Report all errors/warnings and exit if any are found, but ignore counter errors.
+        
+        Counter errors are logged as warnings but do not cause the experiment to exit.
+        This allows the experiment to continue even if the counter reports errors.
+        
+        Args:
+            errors: Dictionary mapping instrument names to lists of error messages
+        """
+        if not errors:
+            return
+        
+        # Filter out counter errors (create a copy to avoid modifying original)
+        counter_errors = errors.get("CT53230A", None)
+        filtered_errors = {k: v for k, v in errors.items() if k != "CT53230A" and v}
+        
+        # Log counter errors as warnings (but don't exit)
+        if counter_errors:
+            self.logger.warning("=" * 60)
+            self.logger.warning("Counter (CT53230A) reported errors/warnings (non-fatal):")
+            for i, error_msg in enumerate(counter_errors, 1):
+                self.logger.warning(f"  - Warning {i}: {error_msg}")
+            self.logger.warning("Continuing experiment despite counter errors...")
+            self.logger.warning("=" * 60)
+        
+        # Report and exit on non-counter errors (if any)
+        if filtered_errors:
+            super().report_and_exit_on_errors(filtered_errors)
+    
     # ========================================================================
     # Measurement Functions
     # ========================================================================
@@ -454,15 +484,15 @@ class ProgrammerExperiment(ExperimentRunner):
         """
         Trigger WR_ENB pulse.
         
-        WR_ENB goes from VCC to 0V for 1ms, then returns to VCC.
+        WR_ENB goes from VCC to 0V for 10ms, then returns to VCC.
         """
         self.logger.info("Triggering WR_ENB pulse...")
         ppg = self._get_instrument(InstrumentType.PG81104A)
         ppg.trigger()
         
-        # Wait for pulse to complete (1ms pulse + margin)
+        # Wait for pulse to complete (10ms pulse + margin)
         if not self.test_mode:
-            time.sleep(0.002)  # 2ms to ensure pulse completes
+            time.sleep(0.012)  # 12ms to ensure 10ms pulse completes
     
     def initiate_time_interval(self) -> None:
         """
@@ -769,10 +799,11 @@ class ProgrammerExperiment(ExperimentRunner):
                     )
                     
                     # Check for errors after first measurement (first set of conditions)
+                    # Ignore counter errors (they don't cause exit)
                     if measurement_num == 1:
                         self.logger.info("Checking for errors after first measurement...")
                         errors = self.check_all_instrument_errors()
-                        self.report_and_exit_on_errors(errors)
+                        self.report_and_exit_on_errors_filtered(errors)
                     
                     # Record measurement
                     measurement = {
