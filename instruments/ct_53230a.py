@@ -106,7 +106,7 @@ class CT53230A(InstrumentBase):
         
         Reference: CONFigure:TINTerval command
         """
-        self.write(f"CONF:TINT (@{start_channel}),(@{stop_channel})")
+        self.write(f"CONF:TINT (@{start_channel})")
         self.logger.info(f"Configured for time interval: CH{start_channel} to CH{stop_channel}")
     
     def configure_totalize(self, channel: int = 1) -> None:
