@@ -41,7 +41,7 @@ Experiment Sequence:
     3. Turn on voltage sources and current sources (PROG_OUT=+20µA, ICELLMEAS=VDD/2)
     4. Turn on current sources (IREFP, PROG_IN)
     5. Spot measurement on ICELLMEAS
-    6. Trigger PPG (WR_ENB goes to 0V for 1ms)
+    6. Trigger PPG (WR_ENB goes to 0V for 10ms)
     7. Read counter for time delay
     8. Final spot measurement on ICELLMEAS
     9. Record: all currents, starting/final ICELLMEAS, pulse width
@@ -91,7 +91,7 @@ class ProgrammerExperiment(ExperimentRunner):
     - Applying VDD/2 to ICELLMEAS
     - Sweeping PROG_IN from 10nA to 100nA
     - Sweeping IREFP through a list of values
-    - Triggering WR_ENB pulse (VCC → 0V for 1ms, 10ns edges)
+    - Triggering WR_ENB pulse (VCC → 0V for 10ms, 10ns edges)
     - Measuring pulse width on PROG_OUT (falling to rising edge on CH1)
     - Recording ICELLMEAS before and after programming
     
@@ -235,7 +235,7 @@ class ProgrammerExperiment(ExperimentRunner):
         
         WR_ENB starts at VCC (idle high). When triggered, it will:
         - Fall to 0V with 10ns fall time
-        - Remain at 0V for 1ms
+        - Remain at 0V for 10ms
         - Return to VCC with 10ns rise time
         """
         self.logger.info("-" * 40)
@@ -251,7 +251,7 @@ class ProgrammerExperiment(ExperimentRunner):
         ppg.set_trigger_count(1)
         ppg.set_trigger_source("IMM")
         
-        # Set period (must accommodate 1ms pulse width)
+        # Set period (must accommodate 10ms pulse width)
         ppg.set_period(cfg["default_period"])
         
         # Configure inverted polarity so idle state is HIGH (VCC)
@@ -262,7 +262,7 @@ class ProgrammerExperiment(ExperimentRunner):
         ppg.set_voltage_high(channel, self.vcc)  # VCC when idle (inverted)
         ppg.set_voltage_low(channel, cfg["default_vlow"])  # 0V when pulsing
         
-        # Set pulse width (1ms at 0V)
+        # Set pulse width (10ms at 0V)
         ppg.set_pulse_width(channel, cfg["default_width"])
         
         # Set rise/fall time (10ns)
@@ -271,7 +271,7 @@ class ProgrammerExperiment(ExperimentRunner):
         # Enable output (but don't trigger yet)
         ppg.enable_output(channel)
         
-        self.logger.info(f"WR_ENB: Idle at {self.vcc}V, pulse to 0V for 1ms, 10ns edges")
+        self.logger.info(f"WR_ENB: Idle at {self.vcc}V, pulse to 0V for 10ms, 10ns edges")
     
     def _configure_voltage_sources(self, mode: str = "ERASE") -> None:
         """

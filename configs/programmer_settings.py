@@ -53,16 +53,13 @@ PROG_IN_SWEEP = {
 # Pre-calculated PROG_IN values (for reference/override)
 # Generated from: [i * 10e-9 for i in range(1, 11)]
 PROG_IN_VALUES = [
-    10e-9,      # 10 nA
-    20e-9,      # 20 nA
-    30e-9,      # 30 nA
-    40e-9,      # 40 nA
-    50e-9,      # 50 nA
-    60e-9,      # 60 nA
-    70e-9,      # 70 nA
-    80e-9,      # 80 nA
-    90e-9,      # 90 nA
-    100e-9,     # 100 nA
+    1e-10,      # 10 nA
+    5e-10,     # 20 nA
+    1e-9,      # 30 nA
+    2e-9,      # 40 nA
+    5e-9,      # 50 nA
+    1e-8,      # 60 nA
+    2e-8,      # 70 nA
 ]
 
 # ============================================================================
@@ -78,7 +75,7 @@ PROG_IN_VALUES = [
 
 PPG_WR_ENB = {
     # Pulse timing
-    "pulse_width": "1MS",       # Duration at 0V (1 millisecond)
+    "pulse_width": "10MS",      # Duration at 0V (10 milliseconds)
     "period": "10MS",           # Period (only matters for multiple pulses)
     "rise_time": "10NS",        # Rise time (10 nanoseconds)
     "fall_time": "10NS",        # Fall time (10 nanoseconds)

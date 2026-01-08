@@ -25,7 +25,7 @@ Resource Allocation Summary:
         → 53230A Channel 2 (not connected)
         → Both channels connected to PROG_OUT to measure pulse width
 
-    Unused pins connected to GNDU (15):
+    Unused pins connected to GNDU (15):  <-- not used, should be ok to leave floating
         Pins 1, 2, 3, 4, 9, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24
         → Connected to GNDU via unused instrument channels set to 0V
 
@@ -231,7 +231,7 @@ PROGRAMMER_BY_TYPE = {
 
 PROGRAMMER_PULSE_CONFIG = {
     "WR_ENB": {
-        "default_width": "1MS",      # Pulse width: 1 millisecond at 0V
+        "default_width": "10MS",     # Pulse width: 10 milliseconds at 0V
         "default_period": "10MS",    # Period (only matters for multiple pulses)
         "default_vhigh": None,       # Will be set to VCC at runtime
         "default_vlow": 0.0,         # Low level is 0V
