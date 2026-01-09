@@ -148,6 +148,26 @@ class CT53230A(InstrumentBase):
         self.write(cmd)
         self.logger.info(f"Channel {channel} trigger level set to {format_number(level)} V")
     
+    def set_trigger_levels(self, channel: int, level_start: float, level_stop: float = None) -> None:
+        """
+        Set both start and stop trigger levels for time-interval measurements.
+
+        Args:
+            channel: Input channel (1 or 2)
+            level_start: Start level in volts (LEV1)
+            level_stop: Stop level in volts (LEV2); defaults to level_start if not provided
+
+        Reference: INPut:LEVel1 and INPut:LEVel2 commands
+        """
+        if level_stop is None:
+            level_stop = level_start
+        self.write(f"INP{channel}:LEV1 {format_number(level_start)}")
+        self.write(f"INP{channel}:LEV2 {format_number(level_stop)}")
+        self.logger.info(
+            f"Channel {channel} trigger levels set to LEV1={format_number(level_start)} V, "
+            f"LEV2={format_number(level_stop)} V"
+        )
+    
     def set_coupling(self, channel: int, coupling: str = "AC") -> None:
         """
         Set the input coupling for a channel.
@@ -205,6 +225,31 @@ class CT53230A(InstrumentBase):
         self.write(f"INP{channel}:SLOP {slope}")
         edge_str = "rising" if slope == "POS" else "falling"
         self.logger.info(f"Channel {channel} trigger slope: {edge_str} edge")
+    
+    def set_slopes(self, channel: int, slope_start: str = "POS", slope_stop: str = None) -> None:
+        """
+        Set start and stop trigger slopes for time-interval measurements.
+
+        Args:
+            channel: Input channel (1 or 2)
+            slope_start: "POS" (rising) or "NEG" (falling) for start (SLOP1)
+            slope_stop: "POS" (rising) or "NEG" (falling) for stop (SLOP2); defaults to slope_start
+
+        Reference: INPut:SLOPe1 and INPut:SLOPe2 commands
+        """
+        slope_start = slope_start.upper()
+        slope_stop = slope_stop.upper() if slope_stop is not None else slope_start
+        for name, val in [("slope_start", slope_start), ("slope_stop", slope_stop)]:
+            if val not in ["POS", "NEG"]:
+                raise ValueError(f"{name} must be 'POS' or 'NEG'")
+        self.write(f"INP{channel}:SLOP1 {slope_start}")
+        self.write(f"INP{channel}:SLOP2 {slope_stop}")
+        edge_start = "rising" if slope_start == "POS" else "falling"
+        edge_stop = "rising" if slope_stop == "POS" else "falling"
+        self.logger.info(
+            f"Channel {channel} trigger slopes set to SLOP1={edge_start} edge, "
+            f"SLOP2={edge_stop} edge"
+        )
     
     # =========================================================================
     # Measurement Methods

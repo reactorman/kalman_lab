@@ -33,13 +33,11 @@ VCC = 5.0       # VCC voltage in volts
 
 # PROG_OUT current source (single value, not a list)
 # This is CH1 configured as a current source
-PROG_OUT_CURRENT = 10e-6      # 150 µA
-PROG_OUT_COMPLIANCE = 1.8    # 2.0 V compliance (minimum for this current range)
+PROG_OUT_CURRENT = 100e-6      # 10 µA
+PROG_OUT_COMPLIANCE = VCC    # 2.0 V compliance (minimum for this current range)
 
 # IREFP current values (list of values to sweep through)
 IREFP_VALUES = [
-    #10e-9,      # 10 nA
-    #50e-9,      # 50 nA
     100e-9,     # 100 nA
 ]
 
@@ -54,11 +52,25 @@ PROG_IN_SWEEP = {
 # Generated from: [i * 10e-9 for i in range(1, 11)]
 PROG_IN_VALUES = [
     1e-10,      # 10 nA
+    2e-10,      # 20 nA
+    3e-10,      # 30 nA
+    4e-10,      # 40 nA
     5e-10,     # 20 nA
+    6e-10,      # 60 nA
+    7e-10,      # 70 nA
+    8e-10,      # 80 nA
+    9e-10,      # 90 nA
     1e-9,      # 30 nA
     2e-9,      # 40 nA
+    3e-9,      # 50 nA
+    4e-9,      # 60 nA
     5e-9,      # 50 nA
+    6e-9,      # 60 nA
+    7e-9,      # 70 nA
+    8e-9,      # 80 nA
+    9e-9,      # 90 nA
     1e-8,      # 60 nA
+    1.5e-8,    # 60 nA
     2e-8,      # 70 nA
 ]
 
@@ -99,7 +111,7 @@ PPG_WR_ENB = {
 COUNTER_CONFIG = {
     # Channel assignment
     "channel": 1,               # CH1 = PROG_OUT (from SMU)
-    "threshold": 1.0,           # Threshold voltage in volts (default: 4V)
+    "threshold": 4.0,           # Threshold voltage in volts (default: 4V)
     "start_slope": "NEG",       # Falling edge on start (NEG = negative slope)
     "stop_slope": "POS",        # Rising edge on stop (POS = positive slope)
     

@@ -358,8 +358,8 @@ class ProgrammerExperiment(ExperimentRunner):
         # Set input impedance (1 MOhm) - only CH1
         counter.set_impedance(channel, cfg["impedance"])
         
-        # Set trigger level for CH1
-        counter.set_trigger_level(channel, threshold)
+        # Set trigger levels for CH1 (start/stop)
+        counter.set_trigger_levels(channel, threshold, threshold)
         
         # For pulse width measurement on a single channel, the 53230A uses:
         # - Start event: falling edge (NEG slope)
@@ -367,8 +367,8 @@ class ProgrammerExperiment(ExperimentRunner):
         # When both start and stop are the same channel, the counter automatically
         # measures pulse width. The slope setting may need to be configured separately
         # for start and stop, but for now we set it for the channel.
-        # Note: The 53230A may require separate slope commands for start/stop in time interval mode
-        counter.set_slope(channel, cfg["start_slope"])  # Falling edge for start
+        # Note: The 53230A requires separate slope commands for start/stop in time interval mode
+        counter.set_slopes(channel, cfg["start_slope"], cfg["stop_slope"])
         
         self.logger.info(f"Counter: Pulse width measurement on CH{channel} (PROG_OUT)")
         self.logger.info(f"Trigger level: {threshold}V")
