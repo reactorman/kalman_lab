@@ -234,6 +234,27 @@ class IV5270B(InstrumentBase):
         """
         self.write(f"RV {channel},{v_range}")
     
+    def set_wait_time(self, mode: int, hold: float, delay: float) -> None:
+        """
+        Set wait time for spot measurements.
+        
+        Args:
+            mode: Wait time mode
+                  0 = Short measurement wait time
+                  1 = Standard measurement wait time  
+                  2 = User-defined measurement wait time (requires hold and delay)
+            hold: Hold time in seconds (for mode 2)
+            delay: Delay time in seconds (for mode 2)
+        
+        Reference: WAT command - WAT mode[,hold[,delay]]
+        """
+        if mode == 2:
+            cmd = f"WAT {mode},{format_number(hold)},{format_number(delay)}"
+        else:
+            cmd = f"WAT {mode}"
+        self.write(cmd)
+        self.logger.info(f"Wait time set: mode={mode}, hold={hold}s, delay={delay}s")
+    
     # =========================================================================
     # Sweep Configuration
     # =========================================================================

@@ -88,7 +88,7 @@ EXPERIMENTS = [
             "F12": 10e-9,
             "IREFP": 100e-9,
             "IMEAS": None,  # None means IMEAS will match X1 value
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+            "ERASE_PROG": ["ERASE"],  # Both states
         },
         "sweep_variables": ["X1"],
         "X1_values": [10e-9, 20e-9, 30e-9, 40e-9, 50e-9, 60e-9, 70e-9, 80e-9, 90e-9],

@@ -41,7 +41,7 @@ Experiment Sequence:
     3. Turn on voltage sources and current sources (PROG_OUT=+20µA, ICELLMEAS=VDD/2)
     4. Turn on current sources (IREFP, PROG_IN)
     5. Spot measurement on ICELLMEAS
-    6. Trigger PPG (WR_ENB goes to 0V for 10ms)
+    6. Trigger PPG (WR_ENB goes to 0V for 500ms)
     7. Read counter for time delay
     8. Final spot measurement on ICELLMEAS
     9. Record: all currents, starting/final ICELLMEAS, pulse width
@@ -91,7 +91,7 @@ class ProgrammerExperiment(ExperimentRunner):
     - Applying VDD/2 to ICELLMEAS
     - Sweeping PROG_IN from 10nA to 100nA
     - Sweeping IREFP through a list of values
-    - Triggering WR_ENB pulse (VCC → 0V for 10ms, 10ns edges)
+    - Triggering WR_ENB pulse (VCC → 0V for 500ms, 10ns edges)
     - Measuring pulse width on PROG_OUT (falling to rising edge on CH1)
     - Recording ICELLMEAS before and after programming
     
@@ -235,7 +235,7 @@ class ProgrammerExperiment(ExperimentRunner):
         
         WR_ENB starts at VCC (idle high). When triggered, it will:
         - Fall to 0V with 10ns fall time
-        - Remain at 0V for 10ms
+        - Remain at 0V for 500ms
         - Return to VCC with 10ns rise time
         """
         self.logger.info("-" * 40)
@@ -251,7 +251,7 @@ class ProgrammerExperiment(ExperimentRunner):
         ppg.set_trigger_count(1)
         ppg.set_trigger_source("IMM")
         
-        # Set period (must accommodate 10ms pulse width)
+        # Set period (must accommodate 500ms pulse width)
         ppg.set_period(cfg["default_period"])
         
         # Configure inverted polarity so idle state is HIGH (VCC)
@@ -262,7 +262,7 @@ class ProgrammerExperiment(ExperimentRunner):
         ppg.set_voltage_high(channel, self.vcc)  # VCC when idle (inverted)
         ppg.set_voltage_low(channel, cfg["default_vlow"])  # 0V when pulsing
         
-        # Set pulse width (10ms at 0V)
+        # Set pulse width (500ms at 0V)
         ppg.set_pulse_width(channel, cfg["default_width"])
         
         # Set rise/fall time (10ns)
@@ -271,7 +271,7 @@ class ProgrammerExperiment(ExperimentRunner):
         # Enable output (but don't trigger yet)
         ppg.enable_output(channel)
         
-        self.logger.info(f"WR_ENB: Idle at {self.vcc}V, pulse to 0V for 10ms, 10ns edges")
+        self.logger.info(f"WR_ENB: Idle at {self.vcc}V, pulse to 0V for 500ms, 10ns edges")
     
     def _configure_voltage_sources(self, mode: str = "ERASE") -> None:
         """
@@ -351,16 +351,21 @@ class ProgrammerExperiment(ExperimentRunner):
             start_channel=channel,
             stop_channel=channel  # Same channel for pulse width measurement
         )
-        
+
+        # Explicitly set input range based on VCC
+        input_range = 50 if self.vcc > 5.01 else 5
+        counter.set_input_range(channel, input_range)
+        self.logger.info(f"Counter input range set to {input_range}V (VCC={self.vcc}V)")
+
         # Set input coupling (DC for logic signals) - only CH1
         counter.set_coupling(channel, cfg["coupling"])
-        
+
         # Set input impedance (1 MOhm) - only CH1
         counter.set_impedance(channel, cfg["impedance"])
-        
+
         # Set trigger levels for CH1 (start/stop)
         counter.set_trigger_levels(channel, threshold, threshold)
-        
+
         # For pulse width measurement on a single channel, the 53230A uses:
         # - Start event: falling edge (NEG slope)
         # - Stop event: rising edge (POS slope)
@@ -759,8 +764,16 @@ class ProgrammerExperiment(ExperimentRunner):
                     if not self.test_mode:
                         time.sleep(0.01)
                     
+                    # Ensure ERASE_PROG is LOW before ICELLMEAS measurement in ERASE mode
+                    if mode == "ERASE":
+                        self.set_terminal_voltage("ERASE_PROG", 0.0)
+                        self.logger.info("ERASE_PROG set to 0V before ICELLMEAS START measurement (ERASE mode)")
                     # Starting ICELLMEAS measurement
                     icellmeas_start = self.measure_icellmeas_current("START")
+                    # Restore ERASE_PROG to VCC after ICELLMEAS measurement in ERASE mode
+                    if mode == "ERASE":
+                        self.set_terminal_voltage("ERASE_PROG", self.vcc)
+                        self.logger.info(f"ERASE_PROG restored to {self.vcc}V after ICELLMEAS START measurement (ERASE mode)")
 
                     # Initiate counter measurement (arms counter to wait for trigger)
                     self.initiate_time_interval()
@@ -771,8 +784,16 @@ class ProgrammerExperiment(ExperimentRunner):
                     # Fetch counter measurement result
                     pulse_width = self.fetch_time_interval()
 
+                    # Ensure ERASE_PROG is LOW before ICELLMEAS measurement in ERASE mode
+                    if mode == "ERASE":
+                        self.set_terminal_voltage("ERASE_PROG", 0.0)
+                        self.logger.info("ERASE_PROG set to 0V before ICELLMEAS FINAL measurement (ERASE mode)")
                     # Final ICELLMEAS measurement
                     icellmeas_final = self.measure_icellmeas_current("FINAL")
+                    # Restore ERASE_PROG to VCC after ICELLMEAS measurement in ERASE mode
+                    if mode == "ERASE":
+                        self.set_terminal_voltage("ERASE_PROG", self.vcc)
+                        self.logger.info(f"ERASE_PROG restored to {self.vcc}V after ICELLMEAS FINAL measurement (ERASE mode)")
                     
                     # Prepare values for CSV (use dummy data in test mode)
                     csv_vrefp = vrefp

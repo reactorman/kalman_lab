@@ -13,6 +13,7 @@ Sections:
     3. PPG SETTINGS - WR_ENB pulse configuration
     4. COUNTER SETTINGS - Time interval measurement thresholds
 """
+import numpy as np
 
 # ============================================================================
 # 1. VOLTAGE SETTINGS
@@ -50,30 +51,11 @@ PROG_IN_SWEEP = {
 
 # Pre-calculated PROG_IN values (for reference/override)
 # Generated from: [i * 10e-9 for i in range(1, 11)]
-PROG_IN_VALUES = [
-    1e-10,      # 10 nA
-    2e-10,      # 20 nA
-    3e-10,      # 30 nA
-    4e-10,      # 40 nA
-    5e-10,     # 20 nA
-    6e-10,      # 60 nA
-    7e-10,      # 70 nA
-    8e-10,      # 80 nA
-    9e-10,      # 90 nA
-    1e-9,      # 30 nA
-    2e-9,      # 40 nA
-    3e-9,      # 50 nA
-    4e-9,      # 60 nA
-    5e-9,      # 50 nA
-    6e-9,      # 60 nA
-    7e-9,      # 70 nA
-    8e-9,      # 80 nA
-    9e-9,      # 90 nA
-    1e-8,      # 60 nA
-    1.5e-8,    # 60 nA
-    2e-8,      # 70 nA
-]
-
+start = 0.1e-9
+stop = 100e-9
+points_per_decade = 10
+PROG_IN_VALUES = np.logspace(np.log10(start), np.log10(stop), int(np.log10(stop/start) * points_per_decade + 1))
+    
 # ============================================================================
 # 3. PPG SETTINGS (WR_ENB Pulse Configuration)
 # ============================================================================
@@ -87,7 +69,7 @@ PROG_IN_VALUES = [
 
 PPG_WR_ENB = {
     # Pulse timing
-    "pulse_width": "10MS",      # Duration at 0V (10 milliseconds)
+    "pulse_width": "500MS",     # Duration at 0V (500 milliseconds)
     "period": "10MS",           # Period (only matters for multiple pulses)
     "rise_time": "10NS",        # Rise time (10 nanoseconds)
     "fall_time": "10NS",        # Fall time (10 nanoseconds)
@@ -111,7 +93,7 @@ PPG_WR_ENB = {
 COUNTER_CONFIG = {
     # Channel assignment
     "channel": 1,               # CH1 = PROG_OUT (from SMU)
-    "threshold": 4.0,           # Threshold voltage in volts (default: 4V)
+    "threshold": VCC*0.8,           # Threshold voltage in volts (default: 4V)
     "start_slope": "NEG",       # Falling edge on start (NEG = negative slope)
     "stop_slope": "POS",        # Rising edge on stop (POS = positive slope)
     

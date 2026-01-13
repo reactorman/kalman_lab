@@ -138,6 +138,9 @@ class ComputeExperiment(ExperimentRunner):
         self._csv_file_latest = None
         self._csv_writer_latest = None
         self._csv_initialized = False
+        
+        # PPG state tracking (None = not initialized yet)
+        self._current_ppg_state = None
     
     def set_sweep_values(self, param_name: str, values: List[float]) -> None:
         """
@@ -241,6 +244,11 @@ class ComputeExperiment(ExperimentRunner):
             if ch <= 4:  # Only log SMU channels
                 channel_info.append(f"CH{ch} (GNDU)")
         self.logger.info(f"4156B: Enabled channels: {', '.join(channel_info)}")
+        
+        # Set wait time for spot measurements on 5270B
+        # WAT 2,1,0.01 = mode 2 (user-defined), hold=1s, delay=0.01s
+        iv5270b.set_wait_time(2, 1, 0.01)
+        self.logger.info("5270B: Wait time configured for spot measurements")
         
         # Note: Measurement mode (MM) is set right before each measurement, not during initialization
         # This avoids redundant MM commands that are not used until measurements begin
@@ -525,16 +533,36 @@ class ComputeExperiment(ExperimentRunner):
         """
         Set the PPG to a specific state (ERASE or PROGRAM).
         
-        This only changes the DC voltage level - no reinitialization.
+        On first call: Full initialization with DC mode setup.
+        On subsequent calls: Only change polarity (INV for ERASE, NORM for PROGRAM).
         
         Args:
-            state_name: "ERASE" (VCC) or "PROGRAM" (0V)
+            state_name: "ERASE" (VCC, INV polarity) or "PROGRAM" (0V, NORM polarity)
         """
         voltage = self.get_ppg_state_voltage(state_name)
         state_desc = COMPUTE_PPG_STATES[state_name]["description"]
         
-        self.logger.info(f"Setting PPG state: {state_name} at {voltage}V")
-        self.set_ppg_dc_mode("ERASE_PROG", voltage)
+        # Get PPG instrument
+        cfg = self.get_terminal_config("ERASE_PROG")
+        ppg = self._get_instrument(cfg.instrument)
+        
+        if self._current_ppg_state is None:
+            # First call: Full initialization
+            self.logger.info(f"Initializing PPG in {state_name} state at {voltage}V")
+            self.set_ppg_dc_mode("ERASE_PROG", voltage)
+            self._current_ppg_state = state_name
+        elif self._current_ppg_state != state_name:
+            # State change: Only change polarity
+            if state_name == "ERASE":
+                ppg.set_polarity(cfg.channel, "INV")
+                self.logger.info(f"PPG polarity changed to INV ({state_name} mode)")
+            else:  # PROGRAM
+                ppg.set_polarity(cfg.channel, "NORM")
+                self.logger.info(f"PPG polarity changed to NORM ({state_name} mode)")
+            self._current_ppg_state = state_name
+        else:
+            # Same state: No change needed
+            self.logger.debug(f"PPG already in {state_name} state, no change needed")
     
     # ========================================================================
     # CSV Output Management
@@ -759,10 +787,8 @@ class ComputeExperiment(ExperimentRunner):
         # Setup OUT1 and OUT2 at VDD voltage (one-time)
         self.setup_sync_sweep_outputs()
         
-        # Set all current terminals to initial values of 0A (one-time)
-        self.logger.info("Setting all current terminals to 0A initially")
-        for terminal in COMPUTE_BY_TYPE[MeasurementType.I]:
-            self.set_terminal_current(terminal, 0.0)
+        # NOTE: Current sources are NOT initialized to 0A here.
+        # They will be set to the first experiment's first combination values.
         
         self.logger.info("=" * 60)
         self.logger.info("INITIALIZATION COMPLETE - Beginning measurements")
@@ -840,6 +866,10 @@ class ComputeExperiment(ExperimentRunner):
                 "measurements": [],
             }
             
+            # Track previous current values to only update changed sources
+            prev_current_combo = None
+            is_first_iteration_of_experiment = True
+            
             # For each parameter combination
             for combo_idx, combo in enumerate(combinations):
                 self.logger.info("-" * 60)
@@ -868,7 +898,33 @@ class ComputeExperiment(ExperimentRunner):
                 # Filter out non-current parameters (ERASE_PROG, IMEAS if None)
                 current_combo = {k: v for k, v in combo.items() 
                                if k not in ["ERASE_PROG", "IMEAS"] or (k == "IMEAS" and v is not None)}
-                self.setup_fixed_currents(current_combo)
+                
+                if is_first_iteration_of_experiment:
+                    # First iteration of experiment: set ALL sources and pause 1 second
+                    self.logger.info("First iteration of experiment - setting all sources")
+                    self.setup_fixed_currents(current_combo)
+                    if not self.test_mode:
+                        self.logger.info("Waiting 1 second for sources to settle...")
+                        time.sleep(1.0)
+                    is_first_iteration_of_experiment = False
+                else:
+                    # Subsequent iterations: only update sources that changed
+                    changed_sources = {}
+                    for param, value in current_combo.items():
+                        if prev_current_combo is None or prev_current_combo.get(param) != value:
+                            changed_sources[param] = value
+                    
+                    if changed_sources:
+                        self.logger.info(f"Updating changed sources: {list(changed_sources.keys())}")
+                        self.setup_fixed_currents(changed_sources)
+                        if not self.test_mode:
+                            self.logger.info("Waiting 100ms for sources to settle...")
+                            time.sleep(0.1)
+                    else:
+                        self.logger.debug("No source changes needed")
+                
+                # Track current values for next iteration
+                prev_current_combo = current_combo.copy()
                 
                 # For each PPG state in this combination
                 for ppg_state in combo_ppg_states:

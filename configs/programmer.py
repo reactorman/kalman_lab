@@ -231,7 +231,7 @@ PROGRAMMER_BY_TYPE = {
 
 PROGRAMMER_PULSE_CONFIG = {
     "WR_ENB": {
-        "default_width": "10MS",     # Pulse width: 10 milliseconds at 0V
+        "default_width": "500MS",    # Pulse width: 500 milliseconds at 0V
         "default_period": "10MS",    # Period (only matters for multiple pulses)
         "default_vhigh": None,       # Will be set to VCC at runtime
         "default_vlow": 0.0,         # Low level is 0V

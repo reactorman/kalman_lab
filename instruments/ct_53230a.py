@@ -17,6 +17,18 @@ from .base import InstrumentBase, format_number
 
 
 class CT53230A(InstrumentBase):
+    def set_input_range(self, channel: int, voltage_range: float) -> None:
+        """
+        Set the input voltage range for a channel.
+        Args:
+            channel: Input channel (1 or 2)
+            voltage_range: 5 or 50 (volts)
+        Reference: INPut:RANGe command
+        """
+        if voltage_range not in [5, 50]:
+            raise ValueError("voltage_range must be 5 or 50 (volts)")
+        self.write(f"INP{channel}:RANG {voltage_range}")
+        self.logger.info(f"Channel {channel} input range set to {voltage_range}V")
     """
     Driver for Keysight 53230A Universal Counter/Timer.
     
