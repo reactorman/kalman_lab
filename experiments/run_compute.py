@@ -282,6 +282,67 @@ class ComputeExperiment(ExperimentRunner):
     # Step 3: Fixed Current Supply Setup
     # ========================================================================
     
+    # Variables that use normalized values (-1 to +1) with formula: IREFP/2 * (X + 1)
+    NORMALIZED_HALF_VARS = {"X1", "X2", "F11", "F12", "IMEAS"}
+    
+    # Variables that use normalized values (0 to 1) with formula: IREFP * X
+    NORMALIZED_FULL_VARS = {"KGAIN", "TRIM"}
+    
+    def convert_normalized_to_current(self, param_name: str, normalized_value: float, 
+                                      irefp: float) -> float:
+        """
+        Convert a normalized value to actual current based on IREFP.
+        
+        Args:
+            param_name: Parameter name (X1, X2, KGAIN, etc.)
+            normalized_value: Normalized value (-1 to +1 or 0 to 1)
+            irefp: IREFP current value in Amps
+        
+        Returns:
+            Actual current in Amps
+        
+        Conversion rules:
+            X1, X2, F11, F12, IMEAS: current = IREFP/2 * (X + 1)  where X is -1 to +1
+            KGAIN, TRIM: current = IREFP * X  where X is 0 to 1
+            IREFP: unchanged (already in Amps)
+        """
+        if param_name in self.NORMALIZED_HALF_VARS:
+            # X1, X2, F11, F12, IMEAS: IREFP/2 * (X + 1)
+            return (irefp / 2.0) * (normalized_value + 1.0)
+        elif param_name in self.NORMALIZED_FULL_VARS:
+            # KGAIN, TRIM: IREFP * X
+            return irefp * normalized_value
+        else:
+            # IREFP, ERASE_PROG: unchanged
+            return normalized_value
+    
+    def convert_combo_to_currents(self, combo: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert all normalized values in a combo dictionary to actual currents.
+        
+        Args:
+            combo: Dictionary with parameter names and normalized values
+        
+        Returns:
+            Dictionary with parameter names and actual current values in Amps
+        """
+        # Get IREFP value (must be present in combo or use default)
+        irefp = combo.get("IREFP", 100e-9)  # Default 100nA if not specified
+        
+        converted = {}
+        for param_name, value in combo.items():
+            if param_name == "ERASE_PROG":
+                # ERASE_PROG is not a current, pass through
+                converted[param_name] = value
+            elif value is None:
+                # None values (like IMEAS=None) pass through
+                converted[param_name] = None
+            else:
+                # Convert normalized value to actual current
+                converted[param_name] = self.convert_normalized_to_current(param_name, value, irefp)
+        
+        return converted
+    
     def set_terminal_current(self, terminal: str, current: float,
                             compliance: float = None) -> None:
         """
@@ -874,7 +935,11 @@ class ComputeExperiment(ExperimentRunner):
             for combo_idx, combo in enumerate(combinations):
                 self.logger.info("-" * 60)
                 self.logger.info(f"Experiment '{exp_name}' - Combination {combo_idx+1}/{len(combinations)}")
-                self.logger.info(f"Parameters: {combo}")
+                self.logger.info(f"Normalized parameters: {combo}")
+                
+                # Convert normalized values to actual currents
+                converted_combo = self.convert_combo_to_currents(combo)
+                self.logger.info(f"Actual currents: {converted_combo}")
                 
                 # Get PPG states for this combination
                 if erases_prog_swept:
@@ -889,14 +954,18 @@ class ComputeExperiment(ExperimentRunner):
                     combo_ppg_states = erases_prog_list
                 
                 # Get X1 value for this combination (either from combo if swept, or from list)
-                if "X1" in combo:
-                    combo_x1_list = [combo["X1"]]  # Single value from combination
+                # Use converted values (actual currents)
+                if "X1" in converted_combo:
+                    combo_x1_list = [converted_combo["X1"]]  # Single value from combination
                 else:
-                    combo_x1_list = x1_list  # Use list from experiment
+                    # X1 is from experiment's X1_values list - need to convert each
+                    irefp = converted_combo.get("IREFP", 100e-9)
+                    combo_x1_list = [self.convert_normalized_to_current("X1", x, irefp) for x in x1_list]
                 
                 # Set fixed current values (only current values change)
                 # Filter out non-current parameters (ERASE_PROG, IMEAS if None)
-                current_combo = {k: v for k, v in combo.items() 
+                # Use converted values (actual currents)
+                current_combo = {k: v for k, v in converted_combo.items() 
                                if k not in ["ERASE_PROG", "IMEAS"] or (k == "IMEAS" and v is not None)}
                 
                 if is_first_iteration_of_experiment:
@@ -942,17 +1011,17 @@ class ComputeExperiment(ExperimentRunner):
                         self.logger.info(f"[{measurement_num}] Experiment '{exp_name}' - "
                                        f"PPG: {ppg_state}, X1: {x1_value}A ({x1_idx+1}/{len(combo_x1_list)})")
                         
-                        # Determine IMEAS value
-                        imeas_value = combo.get("IMEAS")
+                        # Determine IMEAS value (already converted to actual current)
+                        imeas_value = converted_combo.get("IMEAS")
                         if imeas_value is None:
                             # If IMEAS is None in fixed_values, it means use same as X1
                             imeas_value = x1_value
                         elif "IMEAS" in sweep_vars:
-                            # IMEAS is being swept, use value from combo
-                            imeas_value = combo.get("IMEAS", x1_value)
+                            # IMEAS is being swept, use converted value from combo
+                            imeas_value = converted_combo.get("IMEAS", x1_value)
                         else:
-                            # IMEAS is fixed, use value from fixed_values or combo
-                            imeas_value = combo.get("IMEAS", x1_value)
+                            # IMEAS is fixed, use converted value from fixed_values or combo
+                            imeas_value = converted_combo.get("IMEAS", x1_value)
                         
                         # Execute spot measurement for this X1/IMEAS value
                         spot_results = self.execute_spot_measurement(x1_value, imeas_value=imeas_value)

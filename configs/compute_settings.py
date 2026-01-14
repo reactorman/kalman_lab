@@ -55,22 +55,32 @@ CURRENT_SOURCE_COMPLIANCE = 0.1     # 2 V
 #   - fixed_values: Dictionary of fixed parameter values (all parameters except sweep_variables)
 #   - sweep_variables: List of variable names to sweep (either 1 or 2 variables)
 #
-# Available variables: X1, X2, KGAIN (for KGAIN1/KGAIN2 linked), TRIM (for TRIM1/TRIM2 linked),
-#                      F11, F12, IREFP, IMEAS, ERASE_PROG (PPG state: "ERASE" or "PROGRAM")
+# NORMALIZED VALUE SYSTEM:
+# ------------------------
+# X1, X2, F11, F12, IMEAS: Values between -1 and +1
+#   - Actual current = IREFP/2 * (X + 1)
+#   - X = -1 -> current = 0
+#   - X = 0  -> current = IREFP/2
+#   - X = +1 -> current = IREFP
+#
+# KGAIN, TRIM: Values between 0 and 1
+#   - Actual current = IREFP * X
+#   - X = 0 -> current = 0
+#   - X = 1 -> current = IREFP
+#
+# IREFP: Actual current in Amps (unchanged)
+# ERASE_PROG: PPG state list ["ERASE"], ["PROGRAM"], or ["ERASE", "PROGRAM"]
 #
 # Note: KGAIN1 and KGAIN2 are always linked (use "KGAIN" in sweep_variables)
 #       TRIM1 and TRIM2 are always linked (use "TRIM" in sweep_variables)
-#       ERASE_PROG is a list of PPG state names: ["ERASE"], ["PROGRAM"], or ["ERASE", "PROGRAM"]
 
 # ============================================================================
 # EXPERIMENT ENABLE FLAGS (All in one place for easy control)
 # ============================================================================
-EXP_ENABLE_1 = True   # Experiment 1: Sweep X1
-EXP_ENABLE_2 = True   # Experiment 2: Sweep X2
-EXP_ENABLE_3 = True   # Experiment 3: Sweep KGAIN
-EXP_ENABLE_4 = True   # Experiment 4: Sweep IREFP
-EXP_ENABLE_5 = True   # Experiment 5: Sweep X1 and X2
-EXP_ENABLE_6 = True   # Experiment 6: Sweep KGAIN and TRIM
+EXP_ENABLE_1 = True   # Experiment 1: 4Q Multiplier
+EXP_ENABLE_2 = True   # Experiment 2: 2Q Multiplier
+EXP_ENABLE_3 = True   # Experiment 3: 1Q Multiplier
+EXP_ENABLE_4 = True   # Experiment 4: 1Q Divider
 
 # ============================================================================
 # EXPERIMENT DEFINITIONS
@@ -78,100 +88,71 @@ EXP_ENABLE_6 = True   # Experiment 6: Sweep KGAIN and TRIM
 
 EXPERIMENTS = [
     {
-        "name": "Sweep_X1",
+        "name": "4q_mult",
         "enabled": EXP_ENABLE_1,
         "fixed_values": {
-            "X2": 10e-9,
-            "KGAIN": 10e-9,
-            "TRIM": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IREFP": 100e-9,
-            "IMEAS": None,  # None means IMEAS will match X1 value
-            "ERASE_PROG": ["ERASE"],  # Both states
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "KGAIN": 0,       # Normalized: 0 -> 0*IREFP
+            "TRIM": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "IMEAS": 0,      # None means IMEAS will match X1 value
+            "ERASE_PROG": ["ERASE","PROGRAM"],
         },
-        "sweep_variables": ["X1"],
-        "X1_values": [10e-9, 20e-9, 30e-9, 40e-9, 50e-9, 60e-9, 70e-9, 80e-9, 90e-9],
+        "sweep_variables": ["X1","F11"],
+        "F11_values": [-1.0, -0.5, 0.0, 0.5, 1.0],  # Normalized -1 to +1
+        "X1_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
     },
     {
-        "name": "Sweep_X2",
+        "name": "2q_mult",
         "enabled": EXP_ENABLE_2,
         "fixed_values": {
-            "X1": 50e-9,
-            "KGAIN": 10e-9,
-            "TRIM": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IREFP": 100e-9,
-            "IMEAS": 50e-9,
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+            "X1": 0.0,          # Normalized: 0 -> IREFP/2
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "TRIM": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "ERASE_PROG": ["ERASE", "PROGRAM"],
         },
-        "sweep_variables": ["X2"],
-        "X2_values": [5e-9, 10e-9, 15e-9, 20e-9, 25e-9, 30e-9],
+        "sweep_variables": ["KGAIN","IMEAS"],
+        "KGAIN_values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized -1 to +1
+        "IMEAS_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
+
     },
     {
-        "name": "Sweep_KGAIN",
+        "name": "1q_mult",
         "enabled": EXP_ENABLE_3,
         "fixed_values": {
-            "X1": 50e-9,
-            "X2": 10e-9,
-            "TRIM": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IREFP": 100e-9,
-            "IMEAS": 50e-9,
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "KGAIN": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
+            "ERASE_PROG": ["ERASE", "PROGRAM"],
         },
-        "sweep_variables": ["KGAIN"],
-        "KGAIN_values": [0e-9, 5e-9, 10e-9, 15e-9, 20e-9],
+        "sweep_variables": ["TRIM","IMEAS","X1"],
+        "TRIM_values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized 0 to 1
+        "IMEAS_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
+        "X1_values": [0],  # Normalized -1 to +1
     },
-    {
-        "name": "Sweep_IREFP",
+        {
+        "name": "1q_div",
         "enabled": EXP_ENABLE_4,
         "fixed_values": {
-            "X1": 50e-9,
-            "X2": 10e-9,
-            "KGAIN": 10e-9,
-            "TRIM": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IMEAS": 50e-9,
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "KGAIN": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
+            "ERASE_PROG": ["ERASE", "PROGRAM"],
         },
-        "sweep_variables": ["IREFP"],
-        "IREFP_values": [10e-9, 50e-9, 100e-9, 150e-9, 200e-9],
-    },
-    {
-        "name": "Sweep_X1_X2",
-        "enabled": EXP_ENABLE_5,
-        "fixed_values": {
-            "KGAIN": 10e-9,
-            "TRIM": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IREFP": 100e-9,
-            "IMEAS": None,  # None means IMEAS will match X1 value
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
-        },
-        "sweep_variables": ["X1", "X2"],
-        "X1_values": [30e-9, 40e-9, 50e-9, 60e-9, 70e-9],
-        "X2_values": [5e-9, 10e-9, 15e-9, 20e-9],
-    },
-    {
-        "name": "Sweep_KGAIN_TRIM",
-        "enabled": EXP_ENABLE_6,
-        "fixed_values": {
-            "X1": 50e-9,
-            "X2": 10e-9,
-            "F11": 100e-9,
-            "F12": 10e-9,
-            "IREFP": 100e-9,
-            "IMEAS": 50e-9,
-            "ERASE_PROG": ["ERASE", "PROGRAM"],  # Both states
-        },
-        "sweep_variables": ["KGAIN", "TRIM"],
-        "KGAIN_values": [0e-9, 5e-9, 10e-9, 15e-9, 20e-9],
-        "TRIM_values": [1e-9, 5e-9, 10e-9, 25e-9, 50e-9],
+        "sweep_variables": ["TRIM","IMEAS","X1"],
+        "TRIM_values": [1.0],  # Normalized 0 to 1
+        "X1_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
+        "IMEAS_values": [0],  # Normalized -1 to +1
     },
 ]
 
