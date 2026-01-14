@@ -34,7 +34,7 @@ VCC = 5.0       # VCC voltage in volts
 
 # PROG_OUT current source (single value, not a list)
 # This is CH1 configured as a current source
-PROG_OUT_CURRENT = 100e-6      # 10 µA
+PROG_OUT_CURRENT = 10e-6      # 10 µA
 PROG_OUT_COMPLIANCE = VCC    # 2.0 V compliance (minimum for this current range)
 
 # IREFP current values (list of values to sweep through)
