@@ -42,6 +42,9 @@ desktop.ini
 Thumbs.db
 ehthumbs.db
 *.lnk
+~$*.xlsx
+~$*.docx
+~$*.pptx
 
 # macOS (in case of cross-platform use)
 .DS_Store
@@ -63,5 +66,5 @@ secrets.json
 # Instrument control generated files
 logs/test_commands.txt
 logs/*.log
-measurements/
-analysis_plots/*.png
+analysis_plots/*/*.png
+analysis_plots/*/*.csv
