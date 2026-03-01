@@ -409,12 +409,38 @@ class ComputeExperiment(ExperimentRunner):
         
         self.logger.info(f"OUT1, OUT2: Set to VDD={self.vdd}V")
     
+    # Current source terminals on 5270B (channel order for voltage measurement)
+    _5270B_CURRENT_SOURCES = ["X1", "IMEAS", "TRIM1", "TRIM2", "F11", "F12"]
+    # Current source terminals on 4156B (channel order for voltage measurement)
+    _4156B_CURRENT_SOURCES = ["X2", "KGAIN1", "KGAIN2", "IREFP"]
+    # All current source terminal names (for voltage measurement column ordering)
+    _ALL_CURRENT_SOURCES = ["IMEAS", "X1", "X2", "TRIM1", "TRIM2", "F11", "F12",
+                            "KGAIN1", "KGAIN2", "IREFP"]
+
+    @staticmethod
+    def _remove_3letter_prefix(value: str) -> str:
+        """Remove instrument prefix from measurement value string.
+
+        Handles formats like:
+        - 5270B: 'NAI+1.234E-06' (3-letter prefix)
+        - 4156B: '004AV+1.352804E+00' (digits + letters prefix)
+        """
+        value = value.strip()
+        # Match an optional prefix of alphanumeric chars ending with a letter,
+        # followed by a sign or digit that starts the numeric value.
+        match = re.match(r'^[A-Za-z0-9]*[A-Za-z]([+-]?\d.*)', value)
+        if match:
+            return match.group(1)
+        return value
+
     def execute_spot_measurement(self, x1_value: float, imeas_value: float = None) -> Dict[str, Any]:
         """
-        Execute spot measurement of OUT1 with fixed X1 and IMEAS values.
+        Execute spot measurement of OUT1 with fixed X1 and IMEAS values,
+        and measure voltages on all current source channels.
         
         X1 and IMEAS are set to fixed values, then OUT1 current is measured once.
-        No sweeps are performed - only a single spot measurement.
+        Voltages are also measured on every current-forcing channel across both
+        instruments (5270B and 4156B).
         
         Args:
             x1_value: Fixed X1 current value in Amps
@@ -425,9 +451,12 @@ class ComputeExperiment(ExperimentRunner):
             - x1_value: The fixed X1 value used
             - imeas_value: The fixed IMEAS value used
             - OUT1_current: Measured OUT1 current
+            - vIMEAS, vX1, vX2, vTRIM1, vTRIM2, vF11, vF12, vKGAIN1, vKGAIN2, vIREFP:
+              Measured voltages on each current source channel
         """
-        # Get 5270B instrument (all terminals are on it)
-        inst = self._get_instrument(InstrumentType.IV5270B)
+        # Get instrument references
+        inst_5270b = self._get_instrument(InstrumentType.IV5270B)
+        inst_4156b = self._get_instrument(InstrumentType.IV4156B)
         
         # Get terminal configs (for channel numbers and terminal names)
         x1_cfg = self.get_terminal_config("X1")
@@ -442,61 +471,95 @@ class ComputeExperiment(ExperimentRunner):
         
         # Set X1 to fixed value (use 0.1V compliance for positive currents)
         x1_compliance = 0.1 if x1_value > 0 else 2.0
-        inst.set_current(x1_cfg.channel, x1_value, compliance=x1_compliance)
+        inst_5270b.set_current(x1_cfg.channel, x1_value, compliance=x1_compliance)
         self.logger.debug(f"X1 ({x1_cfg.terminal}, CH{x1_cfg.channel}): Set to {x1_value}A (Vcomp={x1_compliance}V)")
         
         # Set IMEAS to fixed value (use 0.1V compliance for positive currents)
         imeas_compliance = 0.1 if imeas_value > 0 else 2.0
-        inst.set_current(imeas_cfg.channel, imeas_value, compliance=imeas_compliance)
+        inst_5270b.set_current(imeas_cfg.channel, imeas_value, compliance=imeas_compliance)
         self.logger.debug(f"IMEAS ({imeas_cfg.terminal}, CH{imeas_cfg.channel}): Set to {imeas_value}A (Vcomp={imeas_compliance}V)")
         
-        # Set measurement mode to spot measurement (mode 1) - OUT1 only
-        inst.set_measurement_mode(1, [out1_cfg.channel])
-        self.logger.debug(f"Measurement mode: Spot measurement on OUT1 ({out1_cfg.terminal}, CH{out1_cfg.channel})")
+        # --- 5270B spot measurement: OUT1 current + voltages on current sources ---
+        # Build channel list: OUT1 first (measures current), then current sources (measure voltage)
+        channels_5270b = [out1_cfg.channel]
+        for term_name in self._5270B_CURRENT_SOURCES:
+            cfg = self.get_terminal_config(term_name)
+            channels_5270b.append(cfg.channel)
         
-        # Execute spot measurement
-        inst.execute_measurement()
+        inst_5270b.set_measurement_mode(1, channels_5270b)
+        self.logger.debug(f"5270B MM 1 on channels {channels_5270b} (OUT1 + current source voltages)")
         
-        # Read measurement data
-        data = inst.read_data()
-        self.logger.debug(f"Raw instrument data: {data}")
+        inst_5270b.execute_measurement()
+        data_5270b = inst_5270b.read_data()
+        self.logger.debug(f"5270B raw data: {data_5270b}")
         
-        # Parse spot measurement data (OUT1 only)
+        # --- 4156B spot measurement: voltages on current sources ---
+        channels_4156b = []
+        for term_name in self._4156B_CURRENT_SOURCES:
+            cfg = self.get_terminal_config(term_name)
+            channels_4156b.append(cfg.channel)
+        
+        inst_4156b.set_measurement_mode(1, channels_4156b)
+        self.logger.debug(f"4156B MM 1 on channels {channels_4156b} (current source voltages)")
+        
+        inst_4156b.execute_measurement()
+        data_4156b = inst_4156b.read_measurement_data()
+        self.logger.debug(f"4156B raw data: {data_4156b}")
+        
+        # --- Parse 5270B data ---
+        # Order: OUT1_current, vX1, vIMEAS, vTRIM1, vTRIM2, vF11, vF12
         results = {
             "x1_value": x1_value,
             "imeas_value": imeas_value,
             "OUT1_current": 0.0,
         }
+        # Initialize all voltage measurements to 0.0
+        for term_name in self._ALL_CURRENT_SOURCES:
+            results[f"v{term_name}"] = 0.0
         
         try:
-            # Parse comma-separated values (single value for OUT1)
-            parts = data.split(",")
+            parts_5270b = data_5270b.split(",")
+            cleaned_5270b = [self._remove_3letter_prefix(p) for p in parts_5270b]
             
-            # Remove 3-letter prefixes (like TAI, TBI) from each value
-            def remove_3letter_prefix(value: str) -> str:
-                """Remove 3-letter alphabetic prefix from value if present."""
-                value = value.strip()
-                if len(value) >= 3 and value[:3].isalpha():
-                    if len(value) == 3 or value[3] in '+-.0123456789':
-                        return value[3:]
-                return value
-            
-            # Clean all parts by removing 3-letter prefixes
-            cleaned_parts = [remove_3letter_prefix(part) for part in parts]
-            
-            if cleaned_parts:
+            # First value is OUT1 current
+            if cleaned_5270b:
                 try:
-                    results["OUT1_current"] = float(cleaned_parts[0])
+                    results["OUT1_current"] = float(cleaned_5270b[0])
                 except ValueError:
                     try:
-                        out1_str = cleaned_parts[0].replace("I", "").replace("A", "")
+                        out1_str = cleaned_5270b[0].replace("I", "").replace("A", "")
                         results["OUT1_current"] = float(out1_str)
                     except (ValueError, IndexError):
-                        self.logger.warning(f"Error parsing spot measurement data: {data}")
+                        self.logger.warning(f"Error parsing OUT1 current from 5270B data: {data_5270b}")
+            
+            # Remaining values are voltages on current source channels (in order of _5270B_CURRENT_SOURCES)
+            for idx, term_name in enumerate(self._5270B_CURRENT_SOURCES):
+                data_idx = idx + 1  # offset by 1 because OUT1 is first
+                if data_idx < len(cleaned_5270b):
+                    try:
+                        results[f"v{term_name}"] = float(cleaned_5270b[data_idx])
+                    except ValueError:
+                        self.logger.warning(f"Error parsing v{term_name} from 5270B data index {data_idx}")
         except (IndexError, ValueError) as e:
-            self.logger.warning(f"Error parsing spot measurement data: {e}, data={data}")
+            self.logger.warning(f"Error parsing 5270B spot measurement data: {e}, data={data_5270b}")
         
-        self.logger.info(f"Spot measurement complete: OUT1={results['OUT1_current']}A")
+        # --- Parse 4156B data ---
+        # Order: vX2, vKGAIN1, vKGAIN2, vIREFP
+        try:
+            parts_4156b = data_4156b.split(",")
+            cleaned_4156b = [self._remove_3letter_prefix(p) for p in parts_4156b]
+            
+            for idx, term_name in enumerate(self._4156B_CURRENT_SOURCES):
+                if idx < len(cleaned_4156b):
+                    try:
+                        results[f"v{term_name}"] = float(cleaned_4156b[idx])
+                    except ValueError:
+                        self.logger.warning(f"Error parsing v{term_name} from 4156B data index {idx}")
+        except (IndexError, ValueError) as e:
+            self.logger.warning(f"Error parsing 4156B spot measurement data: {e}, data={data_4156b}")
+        
+        self.logger.info(f"Spot measurement complete: OUT1={results['OUT1_current']}A, "
+                        f"voltages: " + ", ".join(f"v{t}={results[f'v{t}']}V" for t in self._ALL_CURRENT_SOURCES))
         
         return results
     
@@ -521,23 +584,35 @@ class ComputeExperiment(ExperimentRunner):
             # No sweep variables, return single combination with all fixed values
             return [fixed_values]
         
-        # Get value lists for each sweep variable
-        param_names = []
-        param_values = []
-        
-        for var_name in sweep_vars:
+        # Get valid value lists for each sweep variable, preserving original position
+        # as a stable tie-breaker when lengths are equal.
+        sweep_entries: List[Tuple[int, str, List[Any]]] = []
+
+        for original_index, var_name in enumerate(sweep_vars):
             # Construct the key for the values list (e.g., "X1_values", "KGAIN_values")
             values_key = f"{var_name}_values"
             if values_key in experiment:
-                param_names.append(var_name)
-                param_values.append(experiment[values_key])
+                sweep_entries.append((original_index, var_name, experiment[values_key]))
             else:
                 self.logger.warning(f"Experiment {experiment.get('name', 'Unknown')}: "
                                   f"No values found for sweep variable '{var_name}' (looking for '{values_key}')")
-        
-        if not param_values:
+
+        if not sweep_entries:
             # No valid sweep variables, return fixed values only
             return [fixed_values]
+
+        # Always enforce sweep order by value-list length (ascending), with stable
+        # tie-breaking based on original declaration order.
+        sweep_entries_sorted = sorted(sweep_entries, key=lambda entry: (len(entry[2]), entry[0]))
+        param_names = [entry[1] for entry in sweep_entries_sorted]
+        param_values = [entry[2] for entry in sweep_entries_sorted]
+
+        sweep_order_str = ", ".join(
+            f"{var_name}({len(values)})" for _, var_name, values in sweep_entries_sorted
+        )
+        self.logger.info(
+            f"Experiment '{experiment.get('name', 'Unknown')}': Sweep order (shortest→longest): {sweep_order_str}"
+        )
         
         # Generate all combinations using itertools.product
         combinations = []
@@ -654,6 +729,7 @@ class ComputeExperiment(ExperimentRunner):
         # Current sources: KGAIN1, KGAIN2, TRIM1, TRIM2, X2, IREFP, F11, F12, X1, IMEAS
         # Voltage sources: VDD, VCC, ERASE_PROG (PPG), OUT1, OUT2
         # Measurements: OUT1_current (OUT2 not measured)
+        # Voltage measurements on current sources: vIMEAS, vX1, vX2, vTRIM1, vTRIM2, vF11, vF12, vKGAIN1, vKGAIN2, vIREFP
         # Metadata: Experiment_Name, PPG_state
         headers = [
             "Experiment_Name",
@@ -661,7 +737,9 @@ class ComputeExperiment(ExperimentRunner):
             "VDD", "VCC", "ERASE_PROG", "OUT1", "OUT2",  # Voltage sources
             "KGAIN1", "KGAIN2", "TRIM1", "TRIM2", "X2", "IREFP", "F11", "F12",  # Fixed current sources
             "X1", "IMEAS",  # Sweep current sources
-            "OUT1_current"  # Measurements (OUT2 not measured)
+            "OUT1_current",  # Measurements (OUT2 not measured)
+            "vIMEAS", "vX1", "vX2", "vTRIM1", "vTRIM2", "vF11", "vF12",  # Voltage measurements on current sources
+            "vKGAIN1", "vKGAIN2", "vIREFP",
         ]
         
         # Write header row to both files
@@ -678,7 +756,8 @@ class ComputeExperiment(ExperimentRunner):
     def _write_measurement_row(self, experiment_name: str, ppg_state: str, ppg_voltage: float,
                                fixed_currents: Dict[str, float],
                                x1_value: float, imeas_value: float,
-                               out1_current: float) -> None:
+                               out1_current: float,
+                               voltage_measurements: Dict[str, float] = None) -> None:
         """
         Write a single measurement row to CSV.
         
@@ -690,9 +769,15 @@ class ComputeExperiment(ExperimentRunner):
             x1_value: X1 current value in Amps
             imeas_value: IMEAS current value in Amps
             out1_current: Measured OUT1 current in Amps
+            voltage_measurements: Dictionary of voltage measurements on current sources
+                                  (keys: vIMEAS, vX1, vX2, vTRIM1, vTRIM2, vF11, vF12,
+                                   vKGAIN1, vKGAIN2, vIREFP)
         """
         if not self._csv_initialized:
             self._initialize_csv_output()
+        
+        if voltage_measurements is None:
+            voltage_measurements = {}
         
         # Get all fixed current values (handle linked parameters)
         # KGAIN1 and KGAIN2 are linked (same value from "KGAIN" key)
@@ -720,6 +805,16 @@ class ComputeExperiment(ExperimentRunner):
             x1_value,  # X1
             imeas_value,  # IMEAS
             out1_current,  # OUT1_current
+            voltage_measurements.get("vIMEAS", 0.0),  # vIMEAS
+            voltage_measurements.get("vX1", 0.0),  # vX1
+            voltage_measurements.get("vX2", 0.0),  # vX2
+            voltage_measurements.get("vTRIM1", 0.0),  # vTRIM1
+            voltage_measurements.get("vTRIM2", 0.0),  # vTRIM2
+            voltage_measurements.get("vF11", 0.0),  # vF11
+            voltage_measurements.get("vF12", 0.0),  # vF12
+            voltage_measurements.get("vKGAIN1", 0.0),  # vKGAIN1
+            voltage_measurements.get("vKGAIN2", 0.0),  # vKGAIN2
+            voltage_measurements.get("vIREFP", 0.0),  # vIREFP
         ]
         
         # Write row to both files
@@ -945,10 +1040,10 @@ class ComputeExperiment(ExperimentRunner):
                     combo_x1_list = [self.convert_normalized_to_current("X1", x, irefp) for x in x1_list]
                 
                 # Set fixed current values (only current values change)
-                # Filter out non-current parameters (ERASE_PROG, IMEAS if None)
+                # Filter out non-current parameters and X1/IMEAS (set in execute_spot_measurement)
                 # Use converted values (actual currents)
                 current_combo = {k: v for k, v in converted_combo.items() 
-                               if k not in ["ERASE_PROG", "IMEAS"] or (k == "IMEAS" and v is not None)}
+                               if k not in ["ERASE_PROG", "IMEAS", "X1"]}
                 
                 if is_first_iteration_of_experiment:
                     # First iteration of experiment: set ALL sources and pause 1 second
@@ -1011,9 +1106,15 @@ class ComputeExperiment(ExperimentRunner):
                         # Get measured current from spot measurement (OUT1 only)
                         out1_current = spot_results["OUT1_current"]
                         
+                        # Extract voltage measurements on current sources
+                        voltage_measurements = {
+                            k: v for k, v in spot_results.items() if k.startswith("v")
+                        }
+                        
                         # In test mode, use dummy measurement data but keep correct voltage/current settings
                         if self.test_mode:
                             out1_current = 1e-12  # Dummy measurement
+                            voltage_measurements = {f"v{t}": 0.0 for t in self._ALL_CURRENT_SOURCES}
                         
                         # Write row to CSV (include experiment name)
                         self._write_measurement_row(
@@ -1023,7 +1124,8 @@ class ComputeExperiment(ExperimentRunner):
                             fixed_currents=current_combo,
                             x1_value=spot_results["x1_value"],
                             imeas_value=spot_results["imeas_value"],
-                            out1_current=out1_current
+                            out1_current=out1_current,
+                            voltage_measurements=voltage_measurements,
                         )
                         
                         # Store results
