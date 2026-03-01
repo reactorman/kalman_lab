@@ -17,12 +17,14 @@ The CSV file is NOT read at runtime - these configurations are pre-generated.
 from .resource_types import MeasurementType, InstrumentType, ChannelType
 from .compute import COMPUTE_CONFIG
 from .programmer import PROGRAMMER_CONFIG
+from .big_kalman import BIG_KALMAN_CONFIG
 
 __all__ = [
     'MeasurementType',
-    'InstrumentType', 
+    'InstrumentType',
     'ChannelType',
     'COMPUTE_CONFIG',
     'PROGRAMMER_CONFIG',
+    'BIG_KALMAN_CONFIG',
 ]
 

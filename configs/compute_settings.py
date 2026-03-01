@@ -88,71 +88,132 @@ EXP_ENABLE_4 = True   # Experiment 4: 1Q Divider
 
 EXPERIMENTS = [
     {
-        "name": "4q_mult",
+        "name": "4q_mult_erase",
         "enabled": EXP_ENABLE_1,
         "fixed_values": {
             "X2": 0.0,          # Normalized: 0 -> IREFP/2
             "KGAIN": 0,       # Normalized: 0 -> 0*IREFP
-            "TRIM": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
             "F12": 0.0,         # Normalized: 0 -> IREFP/2
             "IREFP": 100e-9,    # Actual current in Amps
-            "IMEAS": 0,      # None means IMEAS will match X1 value
-            "ERASE_PROG": ["ERASE","PROGRAM"],
+            "ERASE_PROG": "ERASE",
         },
-        "sweep_variables": ["X1","F11"],
+        "sweep_variables": ["X1", "F11"],
+        "X1_values": [round(-1.0 + i * 0.01, 2) for i in range(111)],  # start=-1.0, stop=0.1, step=0.01
         "F11_values": [-1.0, -0.5, 0.0, 0.5, 1.0],  # Normalized -1 to +1
-        "X1_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
     },
     {
-        "name": "2q_mult",
+        "name": "2q_mult_erase",
         "enabled": EXP_ENABLE_2,
         "fixed_values": {
             "X1": 0.0,          # Normalized: 0 -> IREFP/2
             "X2": 0.0,          # Normalized: 0 -> IREFP/2
-            "TRIM": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
             "F11": 0.0,         # Normalized: 1.0 -> IREFP
             "F12": 0.0,         # Normalized: 0 -> IREFP/2
             "IREFP": 100e-9,    # Actual current in Amps
-            "ERASE_PROG": ["ERASE", "PROGRAM"],
+            "ERASE_PROG": "ERASE",
         },
-        "sweep_variables": ["KGAIN","IMEAS"],
-        "KGAIN_values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized -1 to +1
-        "IMEAS_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
-
+        "sweep_variables": ["IMEAS", "KGAIN"],
+        "IMEAS_values": [round(-0.1 + i * 0.01, 2) for i in range(111)],  # start=-0.1, stop=1.0, step=0.01
+        "KGAIN_values": [0.1, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized -1 to +1
     },
     {
-        "name": "1q_mult",
+        "name": "1q_mult_erase",
         "enabled": EXP_ENABLE_3,
         "fixed_values": {
+            "X1": 0.0,          # Normalized: 0 -> IREFP/2
             "X2": 0.0,          # Normalized: 0 -> IREFP/2
-            "KGAIN": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "KGAIN": 0.1,        # Normalized: 0.1 -> 0.1*IREFP
             "F11": 0.0,         # Normalized: 1.0 -> IREFP
             "F12": 0.0,         # Normalized: 0 -> IREFP/2
             "IREFP": 100e-9,    # Actual current in Amps
             "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
-            "ERASE_PROG": ["ERASE", "PROGRAM"],
+            "ERASE_PROG": "ERASE",
         },
-        "sweep_variables": ["TRIM","IMEAS","X1"],
-        "TRIM_values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized 0 to 1
-        "IMEAS_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
-        "X1_values": [0],  # Normalized -1 to +1
+        "sweep_variables": ["IMEAS", "TRIM"],
+        "IMEAS_values": [round(-0.1 + i * 0.01, 2) for i in range(111)],  # start=-0.1, stop=1.0, step=0.01
+        "TRIM_values": [0.02, 0.04, 0.06, 0.08, 0.10],  # Normalized 0 to 1
     },
         {
-        "name": "1q_div",
+        "name": "1q_div_erase",
         "enabled": EXP_ENABLE_4,
         "fixed_values": {
             "X2": 0.0,          # Normalized: 0 -> IREFP/2
-            "KGAIN": 1.0,        # Normalized: 0.1 -> 0.1*IREFP
+            "KGAIN": 0.1,        # Normalized: 0.1 -> 0.1*IREFP
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
             "F11": 0.0,         # Normalized: 1.0 -> IREFP
             "F12": 0.0,         # Normalized: 0 -> IREFP/2
             "IREFP": 100e-9,    # Actual current in Amps
             "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
-            "ERASE_PROG": ["ERASE", "PROGRAM"],
+            "ERASE_PROG": "ERASE",
         },
-        "sweep_variables": ["TRIM","IMEAS","X1"],
-        "TRIM_values": [1.0],  # Normalized 0 to 1
-        "X1_values": [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],  # Normalized -1 to +1
-        "IMEAS_values": [0],  # Normalized -1 to +1
+        "sweep_variables": ["X1"],
+        "X1_values": [round(-1.0 + i * 0.01, 2) for i in range(111)],  # start=-1.0, stop=0.1, step=0.01
+    },
+        {
+        "name": "4q_mult_program",
+        "enabled": EXP_ENABLE_1,
+        "fixed_values": {
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "KGAIN": 0,       # Normalized: 0 -> 0*IREFP
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "ERASE_PROG": "PROGRAM",
+        },
+        "sweep_variables": ["X1", "F11"],
+        "X1_values": [round(-0.1 + i * 0.01, 2) for i in range(111)],  # start=-0.1, stop=1.0, step=0.01
+        "F11_values": [-1.0, -0.5, 0.0, 0.5, 1.0],  # Normalized -1 to +1
+    },
+    {
+        "name": "2q_mult_program",
+        "enabled": EXP_ENABLE_2,
+        "fixed_values": {
+            "X1": 0.0,          # Normalized: 0 -> IREFP/2
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "ERASE_PROG": "PROGRAM",
+        },
+        "sweep_variables": ["IMEAS", "KGAIN"],
+        "IMEAS_values": [round(-1.0 + i * 0.01, 2) for i in range(111)],  # start=-1.0, stop=0.1, step=0.01
+        "KGAIN_values": [0.1, 0.2, 0.4, 0.6, 0.8, 1.0],  # Normalized -1 to +1
+    },
+    {
+        "name": "1q_mult_program",
+        "enabled": EXP_ENABLE_3,
+        "fixed_values": {
+            "X1": 0.0,          # Normalized: 0 -> IREFP/2
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "KGAIN": 0.1,        # Normalized: 0.1 -> 0.1*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
+            "ERASE_PROG": "PROGRAM",
+        },
+        "sweep_variables": ["IMEAS", "TRIM"],
+        "IMEAS_values": [round(-1.0 + i * 0.01, 2) for i in range(111)],  # start=-1.0, stop=0.1, step=0.01
+        "TRIM_values": [0.02, 0.04, 0.06, 0.08, 0.10],  # Normalized 0 to 1
+    },
+        {
+        "name": "1q_div_program",
+        "enabled": EXP_ENABLE_4,
+        "fixed_values": {
+            "X2": 0.0,          # Normalized: 0 -> IREFP/2
+            "TRIM": 0.05,        # Normalized: 0.05 -> 0.05*IREFP
+            "KGAIN": 0.1,        # Normalized: 0.1 -> 0.1*IREFP
+            "F11": 0.0,         # Normalized: 1.0 -> IREFP
+            "F12": 0.0,         # Normalized: 0 -> IREFP/2
+            "IREFP": 100e-9,    # Actual current in Amps
+            "IMEAS": 0.0,       # Normalized: 0 -> IREFP/2
+            "ERASE_PROG": "PROGRAM",
+        },
+        "sweep_variables": ["X1"],
+        "X1_values": [round(-0.1 + i * 0.01, 2) for i in range(111)],  # start=-0.1, stop=1, step=0.01
     },
 ]
 

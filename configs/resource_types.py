@@ -56,6 +56,7 @@ class InstrumentType(Enum):
     IV4156B = "IV4156B"      # Agilent 4156B Semiconductor Parameter Analyzer
     PG81104A = "PG81104A"    # Agilent 81104A Pulse Generator
     CT53230A = "CT53230A"    # Keysight 53230A Counter
+    SW_E5250A = "SW_E5250A"  # Agilent E5250A Low Leakage Switch Mainframe (matrix)
 
 
 class ChannelType(Enum):

@@ -22,6 +22,7 @@ from .iv_5270b import IV5270B
 from .pg_81104a import PG81104A
 from .sr570 import SR570
 from .sr560 import SR560
+from .sw_e5250a import SW_E5250A
 
 __all__ = [
     'InstrumentBase',
@@ -31,5 +32,6 @@ __all__ = [
     'PG81104A',
     'SR570',
     'SR560',
+    'SW_E5250A',
 ]
 

@@ -68,3 +68,4 @@ logs/test_commands.txt
 logs/*.log
 analysis_plots/*/*.png
 analysis_plots/*/*.csv
+analysis_plots/*.csv

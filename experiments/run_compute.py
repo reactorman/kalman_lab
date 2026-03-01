@@ -7,7 +7,7 @@ Top-level execution script for the Compute experiment.
 This script:
 - Imports instrument-level modules
 - Loads the Compute experiment configuration
-- Executes spot measurements of OUT1 and OUT2 with fixed X1 and IMEAS values
+- Executes spot measurements of OUT1 with fixed X1 and IMEAS values
 - Handles TEST_MODE for safe command logging
 
 Usage:
@@ -30,7 +30,7 @@ Experiment Flow:
        - For each X1 fixed value:
          - Set X1 to fixed value
          - Set IMEAS to fixed value (same as X1)
-         - Measure OUT1 and OUT2 current (spot measurement, no sweep)
+         - Measure OUT1 current (spot measurement, no sweep)
 
 Compliance Settings:
     - Voltage sources: 1mA compliance
@@ -86,7 +86,7 @@ class ComputeExperiment(ExperimentRunner):
     - VSU biasing on VDD, VCC
     - Fixed current supplies with user-specified combinations
     - Fixed X1 and IMEAS values with spot measurements
-    - Current measurement on OUT1 and OUT2 (single spot measurement, no sweeps)
+    - Current measurement on OUT1 (single spot measurement, no sweeps)
     
     All currents are "pulled" (positive = into IV meter).
     Positive currents use 0.1V compliance (they get negated when sent to instrument).
@@ -161,7 +161,7 @@ class ComputeExperiment(ExperimentRunner):
         Set the fixed X1 current values.
         
         For each X1 value, IMEAS will be set to the same value and a spot measurement
-        of OUT1 and OUT2 will be performed.
+        of OUT1 will be performed.
         
         Args:
             values: List of X1 current values in Amps
@@ -400,7 +400,7 @@ class ComputeExperiment(ExperimentRunner):
         """
         Setup OUT1 and OUT2 voltages for current measurement.
         
-        OUT1 and OUT2 are set to VDD voltage. Called once at start.
+        OUT1 and OUT2 are set to VDD voltage (OUT2 is biased but not measured). Called once at start.
         This only sets voltage values, channels are already enabled.
         """
         # Set OUT1 and OUT2 to VDD voltage (voltage values only, no reconfig)
@@ -411,9 +411,9 @@ class ComputeExperiment(ExperimentRunner):
     
     def execute_spot_measurement(self, x1_value: float, imeas_value: float = None) -> Dict[str, Any]:
         """
-        Execute spot measurement of OUT1 and OUT2 with fixed X1 and IMEAS values.
+        Execute spot measurement of OUT1 with fixed X1 and IMEAS values.
         
-        X1 and IMEAS are set to fixed values, then OUT1 and OUT2 currents are measured once.
+        X1 and IMEAS are set to fixed values, then OUT1 current is measured once.
         No sweeps are performed - only a single spot measurement.
         
         Args:
@@ -425,7 +425,6 @@ class ComputeExperiment(ExperimentRunner):
             - x1_value: The fixed X1 value used
             - imeas_value: The fixed IMEAS value used
             - OUT1_current: Measured OUT1 current
-            - OUT2_current: Measured OUT2 current
         """
         # Get 5270B instrument (all terminals are on it)
         inst = self._get_instrument(InstrumentType.IV5270B)
@@ -434,7 +433,6 @@ class ComputeExperiment(ExperimentRunner):
         x1_cfg = self.get_terminal_config("X1")
         imeas_cfg = self.get_terminal_config("IMEAS")
         out1_cfg = self.get_terminal_config("OUT1")
-        out2_cfg = self.get_terminal_config("OUT2")
         
         # If IMEAS value not specified, use same as X1
         if imeas_value is None:
@@ -452,10 +450,9 @@ class ComputeExperiment(ExperimentRunner):
         inst.set_current(imeas_cfg.channel, imeas_value, compliance=imeas_compliance)
         self.logger.debug(f"IMEAS ({imeas_cfg.terminal}, CH{imeas_cfg.channel}): Set to {imeas_value}A (Vcomp={imeas_compliance}V)")
         
-        # Set measurement mode to spot measurement (mode 1)
-        # Measure OUT1 and OUT2 currents
-        inst.set_measurement_mode(1, [out1_cfg.channel, out2_cfg.channel])
-        self.logger.debug(f"Measurement mode: Spot measurement on OUT1 ({out1_cfg.terminal}, CH{out1_cfg.channel}) and OUT2 ({out2_cfg.terminal}, CH{out2_cfg.channel})")
+        # Set measurement mode to spot measurement (mode 1) - OUT1 only
+        inst.set_measurement_mode(1, [out1_cfg.channel])
+        self.logger.debug(f"Measurement mode: Spot measurement on OUT1 ({out1_cfg.terminal}, CH{out1_cfg.channel})")
         
         # Execute spot measurement
         inst.execute_measurement()
@@ -464,17 +461,15 @@ class ComputeExperiment(ExperimentRunner):
         data = inst.read_data()
         self.logger.debug(f"Raw instrument data: {data}")
         
-        # Parse spot measurement data
-        # Format: I1,I2 (OUT1 and OUT2 currents)
+        # Parse spot measurement data (OUT1 only)
         results = {
             "x1_value": x1_value,
             "imeas_value": imeas_value,
             "OUT1_current": 0.0,
-            "OUT2_current": 0.0,
         }
         
         try:
-            # Parse comma-separated values
+            # Parse comma-separated values (single value for OUT1)
             parts = data.split(",")
             
             # Remove 3-letter prefixes (like TAI, TBI) from each value
@@ -489,30 +484,19 @@ class ComputeExperiment(ExperimentRunner):
             # Clean all parts by removing 3-letter prefixes
             cleaned_parts = [remove_3letter_prefix(part) for part in parts]
             
-            # Parse OUT1 and OUT2 currents
-            if len(cleaned_parts) >= 2:
-                try:
-                    results["OUT1_current"] = float(cleaned_parts[0])
-                    results["OUT2_current"] = float(cleaned_parts[1])
-                except (ValueError, IndexError):
-                    # Try alternative parsing
-                    try:
-                        out1_str = cleaned_parts[0].replace("I", "").replace("A", "")
-                        out2_str = cleaned_parts[1].replace("I", "").replace("A", "")
-                        results["OUT1_current"] = float(out1_str)
-                        results["OUT2_current"] = float(out2_str)
-                    except (ValueError, IndexError):
-                        self.logger.warning(f"Error parsing spot measurement data: {data}")
-            elif len(cleaned_parts) == 1:
-                # Only one value - assume it's OUT1, set OUT2 to 0
+            if cleaned_parts:
                 try:
                     results["OUT1_current"] = float(cleaned_parts[0])
                 except ValueError:
-                    self.logger.warning(f"Error parsing spot measurement data: {data}")
+                    try:
+                        out1_str = cleaned_parts[0].replace("I", "").replace("A", "")
+                        results["OUT1_current"] = float(out1_str)
+                    except (ValueError, IndexError):
+                        self.logger.warning(f"Error parsing spot measurement data: {data}")
         except (IndexError, ValueError) as e:
             self.logger.warning(f"Error parsing spot measurement data: {e}, data={data}")
         
-        self.logger.info(f"Spot measurement complete: OUT1={results['OUT1_current']}A, OUT2={results['OUT2_current']}A")
+        self.logger.info(f"Spot measurement complete: OUT1={results['OUT1_current']}A")
         
         return results
     
@@ -669,7 +653,7 @@ class ComputeExperiment(ExperimentRunner):
         # Define CSV headers
         # Current sources: KGAIN1, KGAIN2, TRIM1, TRIM2, X2, IREFP, F11, F12, X1, IMEAS
         # Voltage sources: VDD, VCC, ERASE_PROG (PPG), OUT1, OUT2
-        # Measurements: OUT1_current, OUT2_current
+        # Measurements: OUT1_current (OUT2 not measured)
         # Metadata: Experiment_Name, PPG_state
         headers = [
             "Experiment_Name",
@@ -677,7 +661,7 @@ class ComputeExperiment(ExperimentRunner):
             "VDD", "VCC", "ERASE_PROG", "OUT1", "OUT2",  # Voltage sources
             "KGAIN1", "KGAIN2", "TRIM1", "TRIM2", "X2", "IREFP", "F11", "F12",  # Fixed current sources
             "X1", "IMEAS",  # Sweep current sources
-            "OUT1_current", "OUT2_current"  # Measurements
+            "OUT1_current"  # Measurements (OUT2 not measured)
         ]
         
         # Write header row to both files
@@ -694,7 +678,7 @@ class ComputeExperiment(ExperimentRunner):
     def _write_measurement_row(self, experiment_name: str, ppg_state: str, ppg_voltage: float,
                                fixed_currents: Dict[str, float],
                                x1_value: float, imeas_value: float,
-                               out1_current: float, out2_current: float) -> None:
+                               out1_current: float) -> None:
         """
         Write a single measurement row to CSV.
         
@@ -706,7 +690,6 @@ class ComputeExperiment(ExperimentRunner):
             x1_value: X1 current value in Amps
             imeas_value: IMEAS current value in Amps
             out1_current: Measured OUT1 current in Amps
-            out2_current: Measured OUT2 current in Amps
         """
         if not self._csv_initialized:
             self._initialize_csv_output()
@@ -737,7 +720,6 @@ class ComputeExperiment(ExperimentRunner):
             x1_value,  # X1
             imeas_value,  # IMEAS
             out1_current,  # OUT1_current
-            out2_current,  # OUT2_current
         ]
         
         # Write row to both files
@@ -788,7 +770,7 @@ class ComputeExperiment(ExperimentRunner):
                      - For each X1 value (if X1 is being swept):
                         - Set X1 and IMEAS values
                         - Execute spot measurement
-                        - Record OUT1 and OUT2 currents
+                        - Record OUT1 current
         
         Returns:
             Dictionary containing all measurement results
@@ -1026,15 +1008,12 @@ class ComputeExperiment(ExperimentRunner):
                         # Execute spot measurement for this X1/IMEAS value
                         spot_results = self.execute_spot_measurement(x1_value, imeas_value=imeas_value)
                         
-                        # Get measured currents from spot measurement
+                        # Get measured current from spot measurement (OUT1 only)
                         out1_current = spot_results["OUT1_current"]
-                        out2_current = spot_results["OUT2_current"]
                         
                         # In test mode, use dummy measurement data but keep correct voltage/current settings
                         if self.test_mode:
-                            # Use small dummy values for measurements, but keep actual voltage/current settings
                             out1_current = 1e-12  # Dummy measurement
-                            out2_current = 1e-12  # Dummy measurement
                         
                         # Write row to CSV (include experiment name)
                         self._write_measurement_row(
@@ -1044,8 +1023,7 @@ class ComputeExperiment(ExperimentRunner):
                             fixed_currents=current_combo,
                             x1_value=spot_results["x1_value"],
                             imeas_value=spot_results["imeas_value"],
-                            out1_current=out1_current,
-                            out2_current=out2_current
+                            out1_current=out1_current
                         )
                         
                         # Store results

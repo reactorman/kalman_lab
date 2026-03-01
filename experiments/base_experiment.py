@@ -26,7 +26,7 @@ from instruments.base import (
     initialize_csv, set_test_commands_file, get_test_commands_file, LOG_DIR, get_timing_tracker,
     set_instrument_command_log
 )
-from instruments import CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560
+from instruments import CT53230A, IV4156B, IV5270B, PG81104A, SR570, SR560, SW_E5250A
 from configs.resource_types import (
     MeasurementType, InstrumentType, TerminalConfig, ExperimentConfig
 )
@@ -38,6 +38,7 @@ DEFAULT_ADDRESSES = {
     InstrumentType.IV4156B: 'GPIB0::15::INSTR',
     InstrumentType.IV5270B: 'GPIB0::17::INSTR',
     InstrumentType.PG81104A: 'GPIB0::10::INSTR',
+    InstrumentType.SW_E5250A: 'GPIB0::18::INSTR',
 }
 
 # Default compliance limits
@@ -81,6 +82,8 @@ class ExperimentRunner:
         short_names = {
             "Compute": "compute",
             "Programmer": "prog",
+            "Sonos": "sonos",
+            "BigKalman": "big_kalman",
         }
         short_name = short_names.get(config.name, config.name.lower())
         log_file = os.path.join(
@@ -171,6 +174,7 @@ class ExperimentRunner:
                 InstrumentType.IV4156B: IV4156B,
                 InstrumentType.IV5270B: IV5270B,
                 InstrumentType.PG81104A: PG81104A,
+                InstrumentType.SW_E5250A: SW_E5250A,
             }
             
             cls = inst_classes.get(inst_type)
