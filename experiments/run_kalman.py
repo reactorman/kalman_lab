@@ -38,6 +38,8 @@ import argparse
 import logging
 import math
 import random
+import csv
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 # Add parent directory to path for imports
@@ -94,6 +96,100 @@ class KalmanExperiment(ComputeExperiment):
 
         # IMEAS sequence will be generated in run()
         self.imeas_vector: List[float] = []
+
+        # CSV output for measurements
+        self._csv_file = None
+        self._csv_writer = None
+        self._csv_initialized = False
+
+    # ======================================================================
+    # CSV OUTPUT
+    # ======================================================================
+
+    def _initialize_csv_output(self) -> None:
+        """
+        Initialize CSV output file for Kalman measurements.
+
+        File name pattern:
+            measurements/kalman_YYYYMMDD_HHMMSS.csv
+
+        Columns:
+            Step_Index, Mode, IMEAS, OUT1, OUT2, X1, X2, IERR1, IERR2
+        """
+        if self._csv_initialized:
+            return
+
+        measurements_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "measurements",
+        )
+        os.makedirs(measurements_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = os.path.join(
+            measurements_dir,
+            f"kalman_{timestamp}.csv",
+        )
+
+        self._csv_file = open(csv_filename, "w", newline="", encoding="utf-8")
+        self._csv_writer = csv.writer(self._csv_file)
+
+        headers = [
+            "Step_Index",
+            "Mode",
+            "IMEAS",
+            "OUT1",
+            "OUT2",
+            "X1",
+            "X2",
+            "IERR1",
+            "IERR2",
+        ]
+        self._csv_writer.writerow(headers)
+        self._csv_file.flush()
+
+        self._csv_initialized = True
+        self.logger.info(f"Kalman CSV output initialized: {csv_filename}")
+
+    def _write_measurement_row(
+        self,
+        step_index: int,
+        mode: str,
+        imeas: float,
+        out1: float,
+        out2: float,
+        x1: float,
+        x2: float,
+        ierr1: float,
+        ierr2: float,
+    ) -> None:
+        """Write a single measurement row to the Kalman CSV file."""
+        if not self._csv_initialized:
+            self._initialize_csv_output()
+
+        row = [
+            step_index,
+            mode,
+            imeas,
+            out1,
+            out2,
+            x1,
+            x2,
+            ierr1,
+            ierr2,
+        ]
+
+        self._csv_writer.writerow(row)
+        self._csv_file.flush()
+
+    def _close_csv_output(self) -> None:
+        """Close Kalman CSV output file, if open."""
+        if self._csv_file:
+            self._csv_file.close()
+            self._csv_file = None
+            self._csv_writer = None
+            self._csv_initialized = False
+            self.logger.info("Kalman CSV output file closed")
 
     # ======================================================================
     # IMEAS TEST VECTOR GENERATION
@@ -196,6 +292,9 @@ class KalmanExperiment(ComputeExperiment):
         self.logger.info("Executing Kalman-style closed-loop experiment")
         self.logger.info("=" * 60)
 
+        # Initialize CSV output for this run
+        self._initialize_csv_output()
+
         # ------------------------------------------------------------------
         # One-time initialization (reuse ComputeExperiment helpers)
         # ------------------------------------------------------------------
@@ -284,6 +383,19 @@ class KalmanExperiment(ComputeExperiment):
             x1_after_erase = self._update_current(self.x1, ierr1_erase, mode="ERASE")
             x2_after_erase = self._update_current(self.x2, ierr2_erase, mode="ERASE")
 
+            # Log ERASE measurement
+            self._write_measurement_row(
+                step_index=idx,
+                mode="ERASE",
+                imeas=imeas,
+                out1=out1_erase,
+                out2=out2_erase,
+                x1=x1_after_erase,
+                x2=x2_after_erase,
+                ierr1=ierr1_erase,
+                ierr2=ierr2_erase,
+            )
+
             # -------------------- PROGRAM STEP -----------------------------
             self.set_ppg_state("PROGRAM")
 
@@ -302,6 +414,19 @@ class KalmanExperiment(ComputeExperiment):
 
             self.x1 = self._update_current(self.x1, ierr1_prog, mode="PROGRAM")
             self.x2 = self._update_current(self.x2, ierr2_prog, mode="PROGRAM")
+
+            # Log PROGRAM measurement
+            self._write_measurement_row(
+                step_index=idx,
+                mode="PROGRAM",
+                imeas=imeas,
+                out1=out1_prog,
+                out2=out2_prog,
+                x1=self.x1,
+                x2=self.x2,
+                ierr1=ierr1_prog,
+                ierr2=ierr2_prog,
+            )
 
             # Store step history
             history.append(
@@ -399,6 +524,15 @@ class KalmanExperiment(ComputeExperiment):
             clamped,
         )
         return clamped
+
+    # ======================================================================
+    # CLEANUP
+    # ======================================================================
+
+    def shutdown(self) -> None:
+        """Override shutdown to close Kalman CSV output."""
+        self._close_csv_output()
+        super().shutdown()
 
 
 def main() -> None:
