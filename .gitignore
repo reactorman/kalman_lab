@@ -63,6 +63,9 @@ htmlcov/
 *.key
 secrets.json
 
+#Not to confuse with quantum projects, hw
+*quantum*
+
 # Instrument control generated files
 logs/test_commands.txt
 logs/*.log

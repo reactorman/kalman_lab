@@ -36,8 +36,6 @@ import sys
 import os
 import argparse
 import logging
-import math
-import random
 import csv
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -49,6 +47,7 @@ from experiments.run_compute import ComputeExperiment  # Reuse hardware setup he
 from configs.compute import COMPUTE_CONFIG
 from configs import kalman_settings as SETTINGS
 from configs.resource_types import InstrumentType
+from experiments.imeas_test_pattern import generate_imeas_pattern
 
 
 class KalmanExperiment(ComputeExperiment):
@@ -83,16 +82,6 @@ class KalmanExperiment(ComputeExperiment):
         # X currents (A) – updated during loop
         self.x1 = SETTINGS.X1_INITIAL
         self.x2 = SETTINGS.X2_INITIAL
-
-        # IMEAS sequence settings
-        self.imeas_initial = SETTINGS.IMEAS_INITIAL
-        self.imeas_num_points = SETTINGS.IMEAS_NUM_POINTS
-        self.imeas_max_rel_step = SETTINGS.IMEAS_MAX_REL_STEP
-        self.imeas_noise_std = SETTINGS.IMEAS_NOISE_STD
-        self.rng_seed = SETTINGS.RNG_SEED
-
-        # Time step between IMEAS points (seconds)
-        self.time_step = SETTINGS.TIME_STEP
 
         # IMEAS sequence will be generated in run()
         self.imeas_vector: List[float] = []
@@ -192,78 +181,6 @@ class KalmanExperiment(ComputeExperiment):
             self.logger.info("Kalman CSV output file closed")
 
     # ======================================================================
-    # IMEAS TEST VECTOR GENERATION
-    # ======================================================================
-
-    def _make_rng(self) -> random.Random:
-        """Create a random number generator, optionally seeded."""
-        if self.rng_seed is None:
-            return random.Random()
-        return random.Random(self.rng_seed)
-
-    def _random_relative_step(self, rng: random.Random) -> float:
-        """
-        Draw a random relative step in [-imeas_max_rel_step, +imeas_max_rel_step].
-        """
-        return rng.uniform(-self.imeas_max_rel_step, self.imeas_max_rel_step)
-
-    def _additive_noise(self, rng: random.Random) -> float:
-        """
-        Optional additive Gaussian noise (A). Returns 0 if noise std is 0.
-        """
-        if self.imeas_noise_std <= 0.0:
-            return 0.0
-        return rng.gauss(0.0, self.imeas_noise_std)
-
-    def generate_imeas_vector(self, start: float, time_step: float) -> List[float]:
-        """
-        Generate an IMEAS test vector starting from `start`.
-
-        Uses a bounded-length random walk:
-            IMEAS_{k+1} = IMEAS_k * (1 + delta_k) + noise_k
-        where delta_k ~ U[-IMEAS_MAX_REL_STEP, IMEAS_MAX_REL_STEP].
-
-        The resulting vector is later validated against [MIN_CURRENT, MAX_CURRENT].
-        """
-        self.logger.debug("Generating IMEAS vector with time_step=%g s", time_step)
-        rng = self._make_rng()
-        values = [start]
-
-        for _ in range(self.imeas_num_points - 1):
-            prev = values[-1]
-            rel_step = self._random_relative_step(rng)
-            noise = self._additive_noise(rng)
-            next_val = prev * (1.0 + rel_step) + noise
-            values.append(next_val)
-
-        return values
-
-    def _validate_imeas_vector(self, values: List[float]) -> None:
-        """
-        Ensure all IMEAS values are within [MIN_CURRENT, MAX_CURRENT].
-
-        If any value is out of bounds, log an error and terminate the program.
-        """
-        for idx, val in enumerate(values):
-            if not (self.min_current <= val <= self.max_current):
-                self.logger.error("=" * 60)
-                self.logger.error("IMEAS test vector validation FAILED.")
-                self.logger.error(
-                    "Index %d has value %g A which is outside [%g, %g] A",
-                    idx, val, self.min_current, self.max_current,
-                )
-                self.logger.error("Terminate program due to invalid IMEAS test vector.")
-                self.logger.error("=" * 60)
-                raise SystemExit(
-                    f"IMEAS[{idx}] = {val} A is outside [{self.min_current}, {self.max_current}] A"
-                )
-
-        self.logger.info(
-            "IMEAS test vector validated: %d points within [%g, %g] A",
-            len(values), self.min_current, self.max_current,
-        )
-
-    # ======================================================================
     # HELPER: CLAMP CURRENTS
     # ======================================================================
 
@@ -313,20 +230,11 @@ class KalmanExperiment(ComputeExperiment):
         # of instrument state and can be validated before changing outputs.
 
         # ------------------------------------------------------------------
-        # Generate and validate IMEAS test vector
+        # Generate IMEAS test vector using shared pattern generator
         # ------------------------------------------------------------------
-        if not (self.min_current <= self.imeas_initial <= self.max_current):
-            raise SystemExit(
-                f"Initial IMEAS ({self.imeas_initial} A) is outside "
-                f"[{self.min_current}, {self.max_current}] A"
-            )
-
-        self.logger.info(
-            "Generating IMEAS test vector: start=%g A, points=%d, max_rel_step=%g",
-            self.imeas_initial, self.imeas_num_points, self.imeas_max_rel_step,
-        )
-        self.imeas_vector = self.generate_imeas_vector(self.imeas_initial, self.time_step)
-        self._validate_imeas_vector(self.imeas_vector)
+        self.logger.info("Generating IMEAS test pattern from kalman_settings.")
+        imeas_values, roc_values = generate_imeas_pattern()
+        self.imeas_vector = imeas_values
 
         # ------------------------------------------------------------------
         # Apply fixed currents that do NOT change during the loop
@@ -360,6 +268,12 @@ class KalmanExperiment(ComputeExperiment):
         # ------------------------------------------------------------------
         history: List[Dict[str, Any]] = []
 
+        x1_trajectory: List[float] = []
+        x2_trajectory: List[float] = []
+        if self.test_mode:
+            x1_trajectory.append(self.x1)
+            x2_trajectory.append(self.x2)
+
         for idx, imeas in enumerate(self.imeas_vector):
             self.logger.info("-" * 60)
             self.logger.info("IMEAS step %d/%d: IMEAS = %g A", idx + 1, len(self.imeas_vector), imeas)
@@ -374,8 +288,16 @@ class KalmanExperiment(ComputeExperiment):
             self.set_terminal_current("X1", self.x1)
             self.set_terminal_current("X2", self.x2)
 
-            out1_erase = self.measure_terminal_current("OUT1", record=False)
-            out2_erase = self.measure_terminal_current("OUT2", record=False)
+            if self.test_mode:
+                # In TEST_MODE, bypass hardware measurement so X1/X2 still
+                # evolve according to the update equations using a simple
+                # model where OUT currents track X currents.
+                out1_erase = self.x1
+                out2_erase = self.x2
+            else:
+                erase_currents = self._measure_out_currents_pair()
+                out1_erase = erase_currents["OUT1"]
+                out2_erase = erase_currents["OUT2"]
 
             ierr1_erase = self._compute_ierr(self.trim1, out1_erase, label="ERASE/OUT1")
             ierr2_erase = self._compute_ierr(self.trim2, out2_erase, label="ERASE/OUT2")
@@ -406,8 +328,13 @@ class KalmanExperiment(ComputeExperiment):
             self.set_terminal_current("X1", self.x1)
             self.set_terminal_current("X2", self.x2)
 
-            out1_prog = self.measure_terminal_current("OUT1", record=False)
-            out2_prog = self.measure_terminal_current("OUT2", record=False)
+            if self.test_mode:
+                out1_prog = self.x1
+                out2_prog = self.x2
+            else:
+                prog_currents = self._measure_out_currents_pair()
+                out1_prog = prog_currents["OUT1"]
+                out2_prog = prog_currents["OUT2"]
 
             ierr1_prog = self._compute_ierr(self.trim1, out1_prog, label="PROGRAM/OUT1")
             ierr2_prog = self._compute_ierr(self.trim2, out2_prog, label="PROGRAM/OUT2")
@@ -427,6 +354,10 @@ class KalmanExperiment(ComputeExperiment):
                 ierr1=ierr1_prog,
                 ierr2=ierr2_prog,
             )
+
+            if self.test_mode:
+                x1_trajectory.append(self.x1)
+                x2_trajectory.append(self.x2)
 
             # Store step history
             history.append(
@@ -453,6 +384,9 @@ class KalmanExperiment(ComputeExperiment):
             )
 
         self.logger.info("=" * 60)
+
+        if self.test_mode:
+            self._plot_test_mode_trajectories(x1_trajectory, x2_trajectory)
         self.logger.info("Kalman-style experiment complete.")
         self.logger.info(
             "Final X1 = %g A, Final X2 = %g A (bounded to [%g, %g] A)",
@@ -476,6 +410,63 @@ class KalmanExperiment(ComputeExperiment):
             "final_x2": self.x2,
             "history": history,
         }
+
+    # ======================================================================
+    # MEASUREMENT HELPERS
+    # ======================================================================
+
+    def _measure_out_currents_pair(self) -> Dict[str, float]:
+        """
+        Measure OUT1 and OUT2 currents in a single 5270B spot measurement.
+
+        Uses multi-channel MM 1,CH_OUT1,CH_OUT2 and parses both currents
+        from the returned data string. Falls back to per-terminal
+        measurement if either terminal is not on the 5270B.
+        """
+        out1_cfg = self.get_terminal_config("OUT1")
+        out2_cfg = self.get_terminal_config("OUT2")
+
+        if out1_cfg.instrument != InstrumentType.IV5270B or out2_cfg.instrument != InstrumentType.IV5270B:
+            return {
+                "OUT1": self.measure_terminal_current("OUT1", record=False),
+                "OUT2": self.measure_terminal_current("OUT2", record=False),
+            }
+
+        iv = self._get_instrument(InstrumentType.IV5270B)
+        channels = [out1_cfg.channel, out2_cfg.channel]
+        iv.set_measurement_mode(1, channels)
+        iv.execute_measurement()
+        raw = iv.read_data()
+
+        self.logger.debug("5270B OUT1/OUT2 raw data: %s", raw)
+
+        out1_current = 0.0
+        out2_current = 0.0
+
+        try:
+            parts = raw.split(",")
+            cleaned = [self._remove_3letter_prefix(p) for p in parts]
+
+            # First value: OUT1 current
+            if len(cleaned) >= 1:
+                try:
+                    out1_current = float(cleaned[0])
+                except ValueError:
+                    out1_str = cleaned[0].replace("I", "").replace("A", "")
+                    out1_current = float(out1_str)
+
+            # Second value: OUT2 current
+            if len(cleaned) >= 2:
+                try:
+                    out2_current = float(cleaned[1])
+                except ValueError:
+                    out2_str = cleaned[1].replace("I", "").replace("A", "")
+                    out2_current = float(out2_str)
+        except Exception as exc:
+            self.logger.warning("Error parsing OUT1/OUT2 currents from 5270B data %r: %s", raw, exc)
+
+        self.logger.info("OUT1 current = %g A, OUT2 current = %g A", out1_current, out2_current)
+        return {"OUT1": out1_current, "OUT2": out2_current}
 
     # ======================================================================
     # ERROR COMPUTATION AND CURRENT UPDATE HELPERS
@@ -524,6 +515,45 @@ class KalmanExperiment(ComputeExperiment):
             clamped,
         )
         return clamped
+
+    # TEST-MODE PLOTTING
+    # ======================================================================
+
+    def _plot_test_mode_trajectories(
+        self,
+        x1_trajectory: List[float],
+        x2_trajectory: List[float],
+    ) -> None:
+        """
+        In TEST_MODE, plot X1, X2, and IMEAS versus step index.
+
+        This is purely a visualization aid; it is not used in hardware runs.
+        """
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional dependency
+            self.logger.warning("matplotlib not available; skipping test-mode plots: %s", exc)
+            return
+
+        steps_x = list(range(len(x1_trajectory)))
+        steps_i = list(range(len(self.imeas_vector)))
+
+        fig, ax1 = plt.subplots()
+        ax1.set_xlabel("Step index")
+        ax1.set_ylabel("X currents (A)", color="tab:blue")
+        ax1.plot(steps_x, x1_trajectory, label="X1", color="tab:blue")
+        ax1.plot(steps_x, x2_trajectory, label="X2", color="tab:cyan")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
+        ax1.legend(loc="upper left")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("IMEAS (A)", color="tab:orange")
+        ax2.plot(steps_i, self.imeas_vector, label="IMEAS", color="tab:orange", linestyle="--")
+        ax2.tick_params(axis="y", labelcolor="tab:orange")
+
+        fig.tight_layout()
+        plt.title("Test Mode Trajectories: X1, X2, IMEAS")
+        plt.show()
 
     # ======================================================================
     # CLEANUP

@@ -1,0 +1,55 @@
+Experiments Status (manual log)
+Last generated: 2026-03-11
+
+
+Name: Compute (experiments/run_compute.py)
+Description: Characterizes “computation mode” behavior by biasing VDD/VCC, holding the PPG in DC bias states
+  (ERASE at VCC, PROGRAM at 0 V), and sweeping combinations of fixed current-source parameters (e.g.,
+  KGAIN/TRIM/X2/IREFP/F11/F12). For each parameter combination and PPG state, it sets X1 (and IMEAS,
+  typically equal to X1) and performs a spot measurement of OUT1 current, also recording voltages on all
+  current-forcing channels. Outputs are written to timestamped and “latest” CSVs under measurements/
+  (compute_*.csv and compute.csv).
+Summary: 
+Status: Good results from 20260301_165836.  
+
+
+Name: Programmer (experiments/run_programmer.py)
+Description: Measures programming timing using a pulse generator (WR_ENB) plus a counter (53230A) to capture
+  the PROG_OUT pulse width (falling-to-rising). It biases ICELLMEAS at VDD/2 and applies a fixed PROG_OUT
+  current source, then sweeps IREFP and PROG_IN across configured lists for both ERASE and PROGRAM modes.
+  For each condition it records ICELLMEAS before/after the pulse and the measured pulse width, writing
+  results to measurements/prog_*.csv and measurements/prog.csv.
+Summary: 
+Status: 
+
+
+Name: Sonos (experiments/run_sonos.py)
+Description: Runs SONOS-style programming/erasing sequences without using a counter; the primary observable is
+  ICELLMEAS (measured in program mode for consistency). It includes a “cell_init” loop that repeatedly
+  pulses WR_ENB (variable width, capped at 100 ms) to drive ICELLMEAS toward a target current within a
+  tolerance. Two test types are implemented: PROG_IDEAL (sweeps WR_ENB pulse times with PROG_IN=0) and
+  PROG_ACTUAL (uses a constant WR_ENB pulse width while sweeping PROG_IN), logging before/after ICELLMEAS
+  to measurements/sonos_*.csv and measurements/sonos.csv.
+Summary: 
+Status: Active
+
+
+Name: VoltageMeasurement (experiments/run_voltage_measurement.py)
+Description: A quick diagnostic that reuses the Compute terminal mapping to set all current-source terminals to
+  a fixed small current (20 nA) and then spot-measures the resulting voltages on those current-forcing
+  channels. It repeats measurements for both PPG DC states (ERASE at VCC, PROGRAM at 0 V) and writes a
+  per-state CSV (current_source_voltages_<STATE>_*.csv) under measurements/. This is mainly for checking
+  biasing/compliance/headroom across sources.
+Summary: 
+Status: Active
+
+
+Name: BigKalman (experiments/run_big_kalman.py)
+Description: Sets up a larger Kalman-related hardware configuration using the 5270B SMU plus an E5250A switch
+  matrix with 36 outputs that can be routed to VCC or VSS. The script provides initialization, bias
+  application (VCC/VDD/MODE/IMEAS/IREFP), switch-matrix control helpers, and spot-measurement helpers for
+  IVCC, VIMEAS, VREFP, MODE (3-bit code via current), and ICELLMEAS. “Test modes” are noted as TBD; the
+  current entry point initializes and exits cleanly.
+Summary: 
+Status: Active
+
