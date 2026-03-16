@@ -52,13 +52,13 @@ TRIM2_INITIAL = 20e-9
 KGAIN1_INITIAL = 25e-9
 KGAIN2_PER_SEC = 25e-9           # base KGAIN2 rate (A / s)
 KGAIN2_INITIAL = KGAIN2_PER_SEC * TIME_STEP
-F11_INITIAL = 1.0
-F12_PER_SEC = 0.0                # base F12 rate (unitless / s)
+F11_INITIAL = 100e-9
+F12_PER_SEC = 100e-9                # base F12 rate (unitless / s)
 F12_INITIAL = F12_PER_SEC * TIME_STEP
 
 # Initial X currents (A) – will be updated during the loop but start here
-X1_INITIAL = 10e-9
-X2_INITIAL = 10e-9
+X1_INITIAL = 50e-9
+X2_INITIAL = 50e-9
 
 # ============================================================================
 # 5. IMEAS TEST VECTOR GENERATION
@@ -68,7 +68,7 @@ X2_INITIAL = 10e-9
 IMEAS_INITIAL = 50e-9
 
 # Number of IMEAS points to generate (including the initial value)
-IMEAS_NUM_POINTS = 1001
+IMEAS_NUM_POINTS = 1001  # Apparently it can hold 34034 measurements
 
 # Optional RNG seed for reproducibility (set to None for non-deterministic runs)
 RNG_SEED = 12345

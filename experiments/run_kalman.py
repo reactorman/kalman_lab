@@ -169,6 +169,12 @@ class KalmanExperiment(ComputeExperiment):
         # ------------------------------------------------------------------
         history: List[Dict[str, Any]] = []
 
+        x1_trajectory: List[float] = []
+        x2_trajectory: List[float] = []
+        if self.test_mode:
+            x1_trajectory.append(self.x1)
+            x2_trajectory.append(self.x2)
+
         for idx, imeas in enumerate(self.imeas_vector):
             self.logger.info("-" * 60)
             self.logger.info("IMEAS step %d/%d: IMEAS = %g A", idx + 1, len(self.imeas_vector), imeas)
@@ -183,8 +189,16 @@ class KalmanExperiment(ComputeExperiment):
             self.set_terminal_current("X1", self.x1)
             self.set_terminal_current("X2", self.x2)
 
-            out1_erase = self.measure_terminal_current("OUT1", record=False)
-            out2_erase = self.measure_terminal_current("OUT2", record=False)
+            if self.test_mode:
+                # In TEST_MODE, bypass hardware measurement so X1/X2 still
+                # evolve according to the update equations using a simple
+                # model where OUT currents track X currents.
+                out1_erase = self.x1
+                out2_erase = self.x2
+            else:
+                erase_currents = self._measure_out_currents_pair()
+                out1_erase = erase_currents["OUT1"]
+                out2_erase = erase_currents["OUT2"]
 
             ierr1_erase = self._compute_ierr(self.trim1, out1_erase, label="ERASE/OUT1")
             ierr2_erase = self._compute_ierr(self.trim2, out2_erase, label="ERASE/OUT2")
@@ -202,14 +216,23 @@ class KalmanExperiment(ComputeExperiment):
             self.set_terminal_current("X1", self.x1)
             self.set_terminal_current("X2", self.x2)
 
-            out1_prog = self.measure_terminal_current("OUT1", record=False)
-            out2_prog = self.measure_terminal_current("OUT2", record=False)
+            if self.test_mode:
+                out1_prog = self.x1
+                out2_prog = self.x2
+            else:
+                prog_currents = self._measure_out_currents_pair()
+                out1_prog = prog_currents["OUT1"]
+                out2_prog = prog_currents["OUT2"]
 
             ierr1_prog = self._compute_ierr(self.trim1, out1_prog, label="PROGRAM/OUT1")
             ierr2_prog = self._compute_ierr(self.trim2, out2_prog, label="PROGRAM/OUT2")
 
             self.x1 = self._update_current(self.x1, ierr1_prog, mode="PROGRAM")
             self.x2 = self._update_current(self.x2, ierr2_prog, mode="PROGRAM")
+
+            if self.test_mode:
+                x1_trajectory.append(self.x1)
+                x2_trajectory.append(self.x2)
 
             # Store step history
             history.append(
@@ -236,6 +259,9 @@ class KalmanExperiment(ComputeExperiment):
             )
 
         self.logger.info("=" * 60)
+
+        if self.test_mode:
+            self._plot_test_mode_trajectories(x1_trajectory, x2_trajectory)
         self.logger.info("Kalman-style experiment complete.")
         self.logger.info(
             "Final X1 = %g A, Final X2 = %g A (bounded to [%g, %g] A)",
@@ -259,6 +285,63 @@ class KalmanExperiment(ComputeExperiment):
             "final_x2": self.x2,
             "history": history,
         }
+
+    # ======================================================================
+    # MEASUREMENT HELPERS
+    # ======================================================================
+
+    def _measure_out_currents_pair(self) -> Dict[str, float]:
+        """
+        Measure OUT1 and OUT2 currents in a single 5270B spot measurement.
+
+        Uses multi-channel MM 1,CH_OUT1,CH_OUT2 and parses both currents
+        from the returned data string. Falls back to per-terminal
+        measurement if either terminal is not on the 5270B.
+        """
+        out1_cfg = self.get_terminal_config("OUT1")
+        out2_cfg = self.get_terminal_config("OUT2")
+
+        if out1_cfg.instrument != InstrumentType.IV5270B or out2_cfg.instrument != InstrumentType.IV5270B:
+            return {
+                "OUT1": self.measure_terminal_current("OUT1", record=False),
+                "OUT2": self.measure_terminal_current("OUT2", record=False),
+            }
+
+        iv = self._get_instrument(InstrumentType.IV5270B)
+        channels = [out1_cfg.channel, out2_cfg.channel]
+        iv.set_measurement_mode(1, channels)
+        iv.execute_measurement()
+        raw = iv.read_data()
+
+        self.logger.debug("5270B OUT1/OUT2 raw data: %s", raw)
+
+        out1_current = 0.0
+        out2_current = 0.0
+
+        try:
+            parts = raw.split(",")
+            cleaned = [self._remove_3letter_prefix(p) for p in parts]
+
+            # First value: OUT1 current
+            if len(cleaned) >= 1:
+                try:
+                    out1_current = float(cleaned[0])
+                except ValueError:
+                    out1_str = cleaned[0].replace("I", "").replace("A", "")
+                    out1_current = float(out1_str)
+
+            # Second value: OUT2 current
+            if len(cleaned) >= 2:
+                try:
+                    out2_current = float(cleaned[1])
+                except ValueError:
+                    out2_str = cleaned[1].replace("I", "").replace("A", "")
+                    out2_current = float(out2_str)
+        except Exception as exc:
+            self.logger.warning("Error parsing OUT1/OUT2 currents from 5270B data %r: %s", raw, exc)
+
+        self.logger.info("OUT1 current = %g A, OUT2 current = %g A", out1_current, out2_current)
+        return {"OUT1": out1_current, "OUT2": out2_current}
 
     # ======================================================================
     # ERROR COMPUTATION AND CURRENT UPDATE HELPERS
@@ -307,6 +390,46 @@ class KalmanExperiment(ComputeExperiment):
             clamped,
         )
         return clamped
+
+    # ======================================================================
+    # TEST-MODE PLOTTING
+    # ======================================================================
+
+    def _plot_test_mode_trajectories(
+        self,
+        x1_trajectory: List[float],
+        x2_trajectory: List[float],
+    ) -> None:
+        """
+        In TEST_MODE, plot X1, X2, and IMEAS versus step index.
+
+        This is purely a visualization aid; it is not used in hardware runs.
+        """
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional dependency
+            self.logger.warning("matplotlib not available; skipping test-mode plots: %s", exc)
+            return
+
+        steps_x = list(range(len(x1_trajectory)))
+        steps_i = list(range(len(self.imeas_vector)))
+
+        fig, ax1 = plt.subplots()
+        ax1.set_xlabel("Step index")
+        ax1.set_ylabel("X currents (A)", color="tab:blue")
+        ax1.plot(steps_x, x1_trajectory, label="X1", color="tab:blue")
+        ax1.plot(steps_x, x2_trajectory, label="X2", color="tab:cyan")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
+        ax1.legend(loc="upper left")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("IMEAS (A)", color="tab:orange")
+        ax2.plot(steps_i, self.imeas_vector, label="IMEAS", color="tab:orange", linestyle="--")
+        ax2.tick_params(axis="y", labelcolor="tab:orange")
+
+        fig.tight_layout()
+        plt.title("Test Mode Trajectories: X1, X2, IMEAS")
+        plt.show()
 
 
 def main() -> None:
