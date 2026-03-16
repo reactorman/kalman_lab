@@ -36,8 +36,6 @@ import sys
 import os
 import argparse
 import logging
-import math
-import random
 from typing import List, Dict, Any, Optional
 
 # Add parent directory to path for imports
@@ -47,6 +45,7 @@ from experiments.run_compute import ComputeExperiment  # Reuse hardware setup he
 from configs.compute import COMPUTE_CONFIG
 from configs import kalman_settings as SETTINGS
 from configs.resource_types import InstrumentType
+from experiments.imeas_test_pattern import generate_imeas_pattern
 
 
 class KalmanExperiment(ComputeExperiment):
@@ -82,90 +81,8 @@ class KalmanExperiment(ComputeExperiment):
         self.x1 = SETTINGS.X1_INITIAL
         self.x2 = SETTINGS.X2_INITIAL
 
-        # IMEAS sequence settings
-        self.imeas_initial = SETTINGS.IMEAS_INITIAL
-        self.imeas_num_points = SETTINGS.IMEAS_NUM_POINTS
-        self.imeas_max_rel_step = SETTINGS.IMEAS_MAX_REL_STEP
-        self.imeas_noise_std = SETTINGS.IMEAS_NOISE_STD
-        self.rng_seed = SETTINGS.RNG_SEED
-
-        # Time step between IMEAS points (seconds)
-        self.time_step = SETTINGS.TIME_STEP
-
         # IMEAS sequence will be generated in run()
         self.imeas_vector: List[float] = []
-
-    # ======================================================================
-    # IMEAS TEST VECTOR GENERATION
-    # ======================================================================
-
-    def _make_rng(self) -> random.Random:
-        """Create a random number generator, optionally seeded."""
-        if self.rng_seed is None:
-            return random.Random()
-        return random.Random(self.rng_seed)
-
-    def _random_relative_step(self, rng: random.Random) -> float:
-        """
-        Draw a random relative step in [-imeas_max_rel_step, +imeas_max_rel_step].
-        """
-        return rng.uniform(-self.imeas_max_rel_step, self.imeas_max_rel_step)
-
-    def _additive_noise(self, rng: random.Random) -> float:
-        """
-        Optional additive Gaussian noise (A). Returns 0 if noise std is 0.
-        """
-        if self.imeas_noise_std <= 0.0:
-            return 0.0
-        return rng.gauss(0.0, self.imeas_noise_std)
-
-    def generate_imeas_vector(self, start: float, time_step: float) -> List[float]:
-        """
-        Generate an IMEAS test vector starting from `start`.
-
-        Uses a bounded-length random walk:
-            IMEAS_{k+1} = IMEAS_k * (1 + delta_k) + noise_k
-        where delta_k ~ U[-IMEAS_MAX_REL_STEP, IMEAS_MAX_REL_STEP].
-
-        The resulting vector is later validated against [MIN_CURRENT, MAX_CURRENT].
-        """
-        self.logger.debug("Generating IMEAS vector with time_step=%g s", time_step)
-        rng = self._make_rng()
-        values = [start]
-
-        for _ in range(self.imeas_num_points - 1):
-            prev = values[-1]
-            rel_step = self._random_relative_step(rng)
-            noise = self._additive_noise(rng)
-            next_val = prev * (1.0 + rel_step) + noise
-            values.append(next_val)
-
-        return values
-
-    def _validate_imeas_vector(self, values: List[float]) -> None:
-        """
-        Ensure all IMEAS values are within [MIN_CURRENT, MAX_CURRENT].
-
-        If any value is out of bounds, log an error and terminate the program.
-        """
-        for idx, val in enumerate(values):
-            if not (self.min_current <= val <= self.max_current):
-                self.logger.error("=" * 60)
-                self.logger.error("IMEAS test vector validation FAILED.")
-                self.logger.error(
-                    "Index %d has value %g A which is outside [%g, %g] A",
-                    idx, val, self.min_current, self.max_current,
-                )
-                self.logger.error("Terminate program due to invalid IMEAS test vector.")
-                self.logger.error("=" * 60)
-                raise SystemExit(
-                    f"IMEAS[{idx}] = {val} A is outside [{self.min_current}, {self.max_current}] A"
-                )
-
-        self.logger.info(
-            "IMEAS test vector validated: %d points within [%g, %g] A",
-            len(values), self.min_current, self.max_current,
-        )
 
     # ======================================================================
     # HELPER: CLAMP CURRENTS
@@ -214,20 +131,11 @@ class KalmanExperiment(ComputeExperiment):
         # of instrument state and can be validated before changing outputs.
 
         # ------------------------------------------------------------------
-        # Generate and validate IMEAS test vector
+        # Generate IMEAS test vector using shared pattern generator
         # ------------------------------------------------------------------
-        if not (self.min_current <= self.imeas_initial <= self.max_current):
-            raise SystemExit(
-                f"Initial IMEAS ({self.imeas_initial} A) is outside "
-                f"[{self.min_current}, {self.max_current}] A"
-            )
-
-        self.logger.info(
-            "Generating IMEAS test vector: start=%g A, points=%d, max_rel_step=%g",
-            self.imeas_initial, self.imeas_num_points, self.imeas_max_rel_step,
-        )
-        self.imeas_vector = self.generate_imeas_vector(self.imeas_initial, self.time_step)
-        self._validate_imeas_vector(self.imeas_vector)
+        self.logger.info("Generating IMEAS test pattern from kalman_settings.")
+        imeas_values, roc_values = generate_imeas_pattern()
+        self.imeas_vector = imeas_values
 
         # ------------------------------------------------------------------
         # Apply fixed currents that do NOT change during the loop
